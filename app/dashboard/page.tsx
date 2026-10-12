@@ -1,5 +1,5 @@
 "use client";
-
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../lib/supabase/client";
@@ -61,13 +61,21 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
-        <span className="text-xl font-bold text-indigo-600">SkillSangi</span>
-        <button
-          onClick={handleLogout}
-          className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-100"
-        >
-          Log out
-        </button>
+                <span className="text-xl font-bold text-indigo-600">SkillSangi</span>
+        <div className="flex gap-3">
+          <Link
+            href="/profile"
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-100"
+          >
+            Profile
+          </Link>
+          <button
+            onClick={handleLogout}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-100"
+          >
+            Log out
+          </button>
+        </div>
       </header>
 
       <main className="mx-auto max-w-5xl px-6 py-8">
