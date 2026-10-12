@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "../../lib/supabase/client";
 
 type Props = {
   mode: "login" | "signup";
@@ -9,16 +11,53 @@ type Props = {
 
 export default function AuthForm({ mode }: Props) {
   const isSignup = mode === "signup";
+  const router = useRouter();
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
+  const [isError, setIsError] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    // Backend comes in the next step. For now we only show a message.
-    setMessage("Form works! Supabase is not connected yet.");
+    setLoading(true);
+    setMessage("");
+
+    const supabase = createClient();
+
+    if (isSignup) {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { full_name: name } },
+      });
+      if (error) {
+        setIsError(true);
+        setMessage(error.message);
+      } else if (data.session) {
+        // Logged in right away (email confirmation is off)
+        router.push("/dashboard");
+      } else {
+        // Email confirmation is on, so the user must confirm first
+        setIsError(false);
+        setMessage("Account created! Please check your email to confirm.");
+      }
+    } else {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error) {
+        setIsError(true);
+        setMessage(error.message);
+      } else {
+        router.push("/dashboard");
+      }
+    }
+
+    setLoading(false);
   }
 
   return (
@@ -79,13 +118,18 @@ export default function AuthForm({ mode }: Props) {
 
           <button
             type="submit"
-            className="w-full rounded-lg bg-indigo-600 py-2.5 font-medium text-white hover:bg-indigo-700"
+            disabled={loading}
+            className="w-full rounded-lg bg-indigo-600 py-2.5 font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
           >
-            {isSignup ? "Sign up" : "Log in"}
+            {loading ? "Please wait..." : isSignup ? "Sign up" : "Log in"}
           </button>
         </form>
 
-        {message && <p className="mt-4 text-sm text-green-600">{message}</p>}
+        {message && (
+          <p className={`mt-4 text-sm ${isError ? "text-red-600" : "text-green-600"}`}>
+            {message}
+          </p>
+        )}
 
         <p className="mt-6 text-center text-sm text-slate-600">
           {isSignup ? "Already have an account? " : "New to SkillSangi? "}
