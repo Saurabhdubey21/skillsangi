@@ -68,3 +68,26 @@ Student learning platform: AI teacher + personalized roadmaps + study partners
 ## TODO before real users
 - Turn Confirm email back ON and set up custom SMTP
 - Push to GitHub and deploy on Vercel (add env vars there)
+## Done
+- Node, npm, Git installed
+- Next.js 16 project (TypeScript), runs on localhost:3000
+- Landing, signup, login pages (connected to Supabase Auth)
+- Dashboard page: login redirect, logout, route protection
+- Profile page: edit name, college, branch, year, goal
+- Supabase project (Mumbai), Confirm email OFF for testing
+- profiles table with RLS + auto-create trigger
+
+## Current task
+- Deploy: GitHub + Vercel (add env vars, set Supabase URL config)
+
+## Next
+- Roadmap generator (first real feature), then AI teacher
+
+## TODO before real users
+- Turn Confirm email back ON and set up custom SMTP
+- Per-user daily AI message limit
+
+## Database tables
+- profiles (id, full_name, college, branch, study_year, goal, created_at)
+  RLS: authenticated users can select/update only their own row
+  Trigger: on_auth_user_created -> handle_new_user()
