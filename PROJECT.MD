@@ -56,3 +56,15 @@ Student learning platform: AI teacher + personalized roadmaps + study partners
 
 ## Notes
 - Next.js was created with "recommended defaults", so Cache Components is enabled.
+## Done
+- Landing, signup, login pages (connected to Supabase)
+- Supabase project (Mumbai), Confirm email OFF for testing
+- Dashboard page with login redirect, logout, route protection
+- profiles table with RLS and auto-create trigger
+
+## Current task
+- Profile page: edit name, college, branch, year, goal
+
+## TODO before real users
+- Turn Confirm email back ON and set up custom SMTP
+- Push to GitHub and deploy on Vercel (add env vars there)
