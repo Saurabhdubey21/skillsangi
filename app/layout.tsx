@@ -21,8 +21,16 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var c=localStorage.getItem("skillsangi-accent");if(c&&/^#[0-9a-fA-F]{6}$/.test(c)){var r=parseInt(c.slice(1,3),16)/255,g=parseInt(c.slice(3,5),16)/255,b=parseInt(c.slice(5,7),16)/255;var f=function(x){return x<=0.03928?x/12.92:Math.pow((x+0.055)/1.055,2.4)};var l=0.2126*f(r)+0.7152*f(g)+0.0722*f(b);var s=document.documentElement.style;s.setProperty("--accent",c);s.setProperty("--on-accent",l>0.18?"#0F172A":"#FFFFFF")}}catch(e){}`,
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

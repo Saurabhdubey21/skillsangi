@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../lib/supabase/client";
+import ThemePicker from "../components/ThemePicker";
 
 type Profile = {
   full_name: string | null;
