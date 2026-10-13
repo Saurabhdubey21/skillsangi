@@ -88,8 +88,15 @@ export default function DashboardPage() {
           will appear here.
         </p>
 
-        <div className="mt-8 grid gap-6 sm:grid-cols-3">
-          {["My Roadmap", "AI Teacher", "Study Partner"].map((title) => (
+                <div className="mt-8 grid gap-6 sm:grid-cols-3">
+          <Link
+            href="/roadmap"
+            className="rounded-xl border border-slate-200 bg-white p-6 hover:border-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+          >
+            <h2 className="text-lg font-semibold">My Roadmap</h2>
+            <p className="mt-2 text-sm text-slate-500">Open your daily study plan</p>
+          </Link>
+          {["AI Teacher", "Study Partner"].map((title) => (
             <div
               key={title}
               className="rounded-xl border border-slate-200 bg-white p-6"
