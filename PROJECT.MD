@@ -91,3 +91,6 @@ Student learning platform: AI teacher + personalized roadmaps + study partners
 - profiles (id, full_name, college, branch, study_year, goal, created_at)
   RLS: authenticated users can select/update only their own row
   Trigger: on_auth_user_created -> handle_new_user()
+  - Login/signup redesign: split layout with illustration, password show/hide,
+  theme colour picker, mobile-friendly
+- Single Vercel project kept; Supabase Site URL updated to the live link
