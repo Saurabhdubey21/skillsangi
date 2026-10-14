@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../lib/supabase/client";
 import AppShell from "../components/AppShell";
+import ChatToggle from "./ChatPanel";
 import {
   CARD_COLUMNS,
   availabilityOptions,
@@ -561,6 +562,7 @@ function ConnectionItem({
   return (
     <CardView card={card}>
       <div className="space-y-5">
+              <ChatToggle otherId={card.user_id} otherName={name} />
         <div>
           <h4 className="text-sm font-semibold">Contact shared by {name}</h4>
           {theirShare ? (
