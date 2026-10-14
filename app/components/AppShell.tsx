@@ -54,6 +54,15 @@ const nav: NavItem[] = [
     ),
   },
   {
+    href: "/practice",
+    label: "Practice",
+    icon: (
+      <Icon>
+        <path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16" />
+      </Icon>
+    ),
+  },
+  {
     href: "/teacher",
     label: "AI Teacher",
     soon: true,
@@ -197,7 +206,7 @@ export default function AppShell({
       {/* Mobile bottom tabs */}
       <nav
         aria-label="Main"
-        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-3 border-t border-border bg-background/90 backdrop-blur-xl md:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-border bg-background/90 backdrop-blur-xl md:hidden"
       >
         {mobileTabs.map((item) => (
           <Link
