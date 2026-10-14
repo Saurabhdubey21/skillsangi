@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { createClient } from "../../lib/supabase/client";
+import AppShell from "../components/AppShell";
 
 const goals = [
   "DSA and problem solving",
@@ -14,6 +14,28 @@ const goals = [
   "Other",
 ];
 
+const controlClass =
+  "w-full rounded-control border border-border bg-surface px-3 py-2.5 text-foreground outline-none transition-colors placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/30";
+
+function FormField({
+  id,
+  label,
+  children,
+}: {
+  id: string;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1.5 block text-sm font-medium">
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
 export default function ProfilePage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -21,6 +43,7 @@ export default function ProfilePage() {
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
 
+  const [savedName, setSavedName] = useState("");
   const [fullName, setFullName] = useState("");
   const [college, setCollege] = useState("");
   const [branch, setBranch] = useState("");
@@ -49,8 +72,10 @@ export default function ProfilePage() {
       if (error) {
         setIsError(true);
         setMessage("Could not load profile: " + error.message);
+        setSavedName((user.email ?? "").split("@")[0]);
       } else if (data) {
         setFullName(data.full_name ?? "");
+        setSavedName(data.full_name?.trim() || (user.email ?? "").split("@")[0]);
         setCollege(data.college ?? "");
         setBranch(data.branch ?? "");
         setStudyYear(data.study_year ? String(data.study_year) : "");
@@ -73,11 +98,12 @@ export default function ProfilePage() {
     } = await supabase.auth.getUser();
 
     if (!user) {
+      setSaving(false);
       router.replace("/login");
       return;
     }
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("profiles")
       .update({
         full_name: fullName.trim() || null,
@@ -86,89 +112,82 @@ export default function ProfilePage() {
         study_year: studyYear ? Number(studyYear) : null,
         goal: goal || null,
       })
-      .eq("id", user.id);
+      .eq("id", user.id)
+      .select("id");
 
     if (error) {
       setIsError(true);
       setMessage(error.message);
+    } else if (!data || data.length === 0) {
+      setIsError(true);
+      setMessage("Could not find your profile to update. Please log out and back in.");
     } else {
       setIsError(false);
-      setMessage("Profile saved!");
+      setMessage("Profile saved.");
+      setSavedName(fullName.trim() || (user.email ?? "").split("@")[0]);
     }
     setSaving(false);
   }
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-600">
-        Loading...
+      <div
+        role="status"
+        className="backdrop-wash flex min-h-screen items-center justify-center text-muted"
+      >
+        Loading your profile...
       </div>
     );
   }
 
-  const inputClass =
-    "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none focus:border-indigo-500";
-
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
-        <span className="text-xl font-bold text-indigo-600">SkillSangi</span>
-        <Link
-          href="/dashboard"
-          className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-100"
-        >
-          Back to dashboard
-        </Link>
-      </header>
+    <AppShell userName={savedName}>
+      <h1 className="text-3xl font-semibold sm:text-4xl">Your profile</h1>
+      <p className="mt-2 max-w-xl text-muted">
+        This helps us build your roadmap and find study partners.
+      </p>
 
-      <main className="mx-auto max-w-xl px-6 py-8">
-        <h1 className="text-3xl font-bold">Your profile</h1>
-        <p className="mt-2 text-slate-600">
-          This helps us build your roadmap and find study partners.
-        </p>
+      <form onSubmit={handleSave} className="glass mt-8 max-w-xl space-y-5 p-6 sm:p-8">
+        <FormField id="full-name" label="Full name">
+          <input
+            id="full-name"
+            type="text"
+            required
+            autoComplete="name"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            className={controlClass}
+          />
+        </FormField>
 
-        <form
-          onSubmit={handleSave}
-          className="mt-6 space-y-4 rounded-xl border border-slate-200 bg-white p-6"
-        >
-          <div>
-            <label className="mb-1 block text-sm font-medium">Full name</label>
+        <FormField id="college" label="College">
+          <input
+            id="college"
+            type="text"
+            value={college}
+            onChange={(e) => setCollege(e.target.value)}
+            className={controlClass}
+          />
+        </FormField>
+
+        <div className="grid gap-5 sm:grid-cols-2">
+          <FormField id="branch" label="Branch">
             <input
-              type="text"
-              required
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              className={inputClass}
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm font-medium">College</label>
-            <input
-              type="text"
-              value={college}
-              onChange={(e) => setCollege(e.target.value)}
-              className={inputClass}
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm font-medium">Branch</label>
-            <input
+              id="branch"
               type="text"
               placeholder="e.g. ECE, CSE"
               value={branch}
               onChange={(e) => setBranch(e.target.value)}
-              className={inputClass}
+              className={controlClass}
             />
-          </div>
+          </FormField>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium">Year of study</label>
+          <FormField id="study-year" label="Year of study">
             <select
+              id="study-year"
               value={studyYear}
               onChange={(e) => setStudyYear(e.target.value)}
-              className={inputClass}
+              className={controlClass}
             >
               <option value="">Select year</option>
               <option value="1">1st year</option>
@@ -176,39 +195,42 @@ export default function ProfilePage() {
               <option value="3">3rd year</option>
               <option value="4">4th year</option>
             </select>
-          </div>
+          </FormField>
+        </div>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium">Main learning goal</label>
-            <select
-              value={goal}
-              onChange={(e) => setGoal(e.target.value)}
-              className={inputClass}
-            >
-              <option value="">Select a goal</option>
-              {goals.map((g) => (
-                <option key={g} value={g}>
-                  {g}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <button
-            type="submit"
-            disabled={saving}
-            className="w-full rounded-lg bg-indigo-600 py-2.5 font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+        <FormField id="goal" label="Main learning goal">
+          <select
+            id="goal"
+            value={goal}
+            onChange={(e) => setGoal(e.target.value)}
+            className={controlClass}
           >
-            {saving ? "Saving..." : "Save profile"}
-          </button>
+            <option value="">Select a goal</option>
+            {goals.map((g) => (
+              <option key={g} value={g}>
+                {g}
+              </option>
+            ))}
+          </select>
+        </FormField>
 
-          {message && (
-            <p className={`text-sm ${isError ? "text-red-600" : "text-green-600"}`}>
-              {message}
-            </p>
-          )}
-        </form>
-      </main>
-    </div>
+        <button
+          type="submit"
+          disabled={saving}
+          className="w-full rounded-control bg-accent py-3 font-medium text-on-accent shadow-[0_8px_30px_-8px_var(--accent)] transition hover:bg-accent-hover disabled:opacity-60"
+        >
+          {saving ? "Saving..." : "Save profile"}
+        </button>
+
+        {message && (
+          <p
+            role={isError ? "alert" : "status"}
+            className={`text-sm ${isError ? "text-danger" : "text-success"}`}
+          >
+            {message}
+          </p>
+        )}
+      </form>
+    </AppShell>
   );
 }
