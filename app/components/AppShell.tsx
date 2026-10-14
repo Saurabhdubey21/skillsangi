@@ -63,24 +63,23 @@ const nav: NavItem[] = [
     ),
   },
   {
+    href: "/partner",
+    label: "Teammates",
+    icon: (
+      <Icon>
+        <circle cx="9" cy="8" r="3.5" />
+        <path d="M2.5 20c0-3.6 3-5.5 6.5-5.5s6.5 1.9 6.5 5.5" />
+        <path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.8c2.2.7 3.5 2.3 3.5 5.2" />
+      </Icon>
+    ),
+  },
+  {
     href: "/teacher",
     label: "AI Teacher",
     soon: true,
     icon: (
       <Icon>
         <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
-      </Icon>
-    ),
-  },
-  {
-    href: "/partner",
-    label: "Study Partner",
-    soon: true,
-    icon: (
-      <Icon>
-        <circle cx="9" cy="8" r="3.5" />
-        <path d="M2.5 20c0-3.6 3-5.5 6.5-5.5s6.5 1.9 6.5 5.5" />
-        <path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.8c2.2.7 3.5 2.3 3.5 5.2" />
       </Icon>
     ),
   },
@@ -206,14 +205,14 @@ export default function AppShell({
       {/* Mobile bottom tabs */}
       <nav
         aria-label="Main"
-        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-border bg-background/90 backdrop-blur-xl md:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border bg-background/90 backdrop-blur-xl md:hidden"
       >
         {mobileTabs.map((item) => (
           <Link
             key={item.href}
             href={item.href}
             aria-current={isActive(item.href) ? "page" : undefined}
-            className={`flex flex-col items-center gap-1 py-2.5 text-xs font-medium ${
+            className={`flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium ${
               isActive(item.href) ? "text-accent" : "text-muted"
             }`}
           >
