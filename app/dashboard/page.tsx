@@ -1,14 +1,33 @@
 "use client";
+
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../lib/supabase/client";
-import ThemePicker from "../components/ThemePicker";
+import AppShell from "../components/AppShell";
 
 type Profile = {
   full_name: string | null;
   college: string | null;
 };
+
+function greeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+const upcoming = [
+  {
+    title: "AI Teacher",
+    text: "Ask a doubt in plain language and get a step-by-step explanation.",
+  },
+  {
+    title: "Study Partner",
+    text: "Get matched with a classmate who has similar goals and free time.",
+  },
+];
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -45,68 +64,78 @@ export default function DashboardPage() {
     load();
   }, [router]);
 
-  async function handleLogout() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.replace("/login");
-  }
-
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-600">
-        Loading...
+      <div
+        role="status"
+        className="backdrop-wash flex min-h-screen items-center justify-center text-muted"
+      >
+        Loading your dashboard...
       </div>
     );
   }
 
+  const displayName = profile?.full_name?.trim() || email.split("@")[0];
+  const firstName = displayName.split(" ")[0];
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
-                <span className="text-xl font-bold text-indigo-600">SkillSangi</span>
-        <div className="flex gap-3">
+    <AppShell userName={displayName}>
+      <h1 className="text-3xl font-semibold sm:text-4xl">
+        {greeting()}, {firstName}
+      </h1>
+      <p className="mt-2 text-muted">
+        Pick up your plan, or set one up in about a minute.
+      </p>
+
+      <section className="glass mt-8 flex flex-col items-start justify-between gap-6 p-6 sm:flex-row sm:items-center sm:p-8">
+        <div>
+          <h2 className="text-xl font-semibold">Today&apos;s plan</h2>
+          <p className="mt-2 max-w-md text-muted">
+            Your daily tasks live on your roadmap. Open it to see what is due
+            today and tick tasks off as you finish them.
+          </p>
+        </div>
+        <Link
+          href="/roadmap"
+          className="shrink-0 rounded-control bg-accent px-6 py-3 font-medium text-on-accent shadow-[0_8px_30px_-8px_var(--accent)] transition hover:bg-accent-hover"
+        >
+          Open my roadmap
+        </Link>
+      </section>
+
+      {!profile?.college && (
+        <section className="mt-4 flex flex-col items-start justify-between gap-3 rounded-panel border border-border bg-surface p-5 sm:flex-row sm:items-center">
+          <p className="text-sm">
+            <span className="font-medium">Add your college.</span>{" "}
+            <span className="text-muted">
+              It helps us match you with classmates when study partners launch.
+            </span>
+          </p>
           <Link
             href="/profile"
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-100"
+            className="shrink-0 text-sm font-medium text-accent hover:underline"
           >
-            Profile
+            Update profile
           </Link>
-          <button
-            onClick={handleLogout}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-100"
-          >
-            Log out
-          </button>
-        </div>
-      </header>
+        </section>
+      )}
 
-      <main className="mx-auto max-w-5xl px-6 py-8">
-        <h1 className="text-3xl font-bold">
-          Welcome, {profile?.full_name || email}!
-        </h1>
-        <p className="mt-2 text-slate-600">
-          This is your dashboard. Your roadmap, AI teacher and study partner
-          will appear here.
-        </p>
-
-                <div className="mt-8 grid gap-6 sm:grid-cols-3">
-          <Link
-            href="/roadmap"
-            className="rounded-xl border border-slate-200 bg-white p-6 hover:border-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
-          >
-            <h2 className="text-lg font-semibold">My Roadmap</h2>
-            <p className="mt-2 text-sm text-slate-500">Open your daily study plan</p>
-          </Link>
-          {["AI Teacher", "Study Partner"].map((title) => (
-            <div
-              key={title}
-              className="rounded-xl border border-slate-200 bg-white p-6"
-            >
-              <h2 className="text-lg font-semibold">{title}</h2>
-              <p className="mt-2 text-sm text-slate-500">Coming soon</p>
+      <section className="mt-10">
+        <h2 className="text-lg font-semibold">Coming next</h2>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          {upcoming.map((item) => (
+            <div key={item.title} className="rounded-panel border border-border bg-surface p-5">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="font-semibold">{item.title}</h3>
+                <span className="rounded-full border border-border bg-surface-strong px-2.5 py-0.5 text-xs font-medium text-muted">
+                  Coming soon
+                </span>
+              </div>
+              <p className="mt-2 text-sm text-muted">{item.text}</p>
             </div>
           ))}
         </div>
-      </main>
-    </div>
+      </section>
+    </AppShell>
   );
 }
