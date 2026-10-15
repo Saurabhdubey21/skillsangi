@@ -28,8 +28,10 @@ type Task = {
 const allProblemIds = new Set(topics.flatMap((t) => t.problems.map((p) => p.id)));
 const totalProblems = allProblemIds.size;
 
-function greeting() {
-  const hour = new Date().getHours();
+// The current time is passed in after the page loads, never read while rendering
+function greeting(now: Date | null) {
+  if (!now) return "Welcome";
+  const hour = now.getHours();
   if (hour < 12) return "Good morning";
   if (hour < 17) return "Good afternoon";
   return "Good evening";
@@ -40,13 +42,13 @@ function localDay(d: Date) {
 }
 
 // Consecutive days with at least one finished task. Today does not break the streak until it ends.
-function computeStreak(tasks: Task[]) {
+function computeStreak(tasks: Task[], now: Date) {
   const days = new Set(
     tasks
       .filter((t) => t.done && t.completed_at)
       .map((t) => localDay(new Date(t.completed_at as string)))
   );
-  const cursor = new Date();
+  const cursor = new Date(now);
   if (!days.has(localDay(cursor))) cursor.setDate(cursor.getDate() - 1);
   let streak = 0;
   while (days.has(localDay(cursor))) {
@@ -119,6 +121,12 @@ export default function DashboardPage() {
   const [pendingRequests, setPendingRequests] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [error, setError] = useState("");
+  const [now, setNow] = useState<Date | null>(null);
+
+  // Read the current time once, after the page has loaded
+  useEffect(() => {
+    setNow(new Date());
+  }, []);
 
   useEffect(() => {
     const supabase = createClient();
@@ -242,9 +250,9 @@ export default function DashboardPage() {
       doneCount,
       percent: total ? Math.round((doneCount / total) * 100) : 0,
       lastDay: total ? Math.max(...tasks.map((t) => t.day_number)) : 0,
-      streak: computeStreak(tasks),
+      streak: now ? computeStreak(tasks, now) : 0,
     };
-  }, [tasks]);
+  }, [tasks, now]);
 
   if (loading) {
     return (
@@ -275,7 +283,7 @@ export default function DashboardPage() {
   return (
     <AppShell userName={displayName}>
       <h1 className="text-3xl font-semibold sm:text-4xl">
-        {greeting()}, {firstName}
+        {greeting(now)}, {firstName}
       </h1>
       <p className="mt-2 text-muted">
         {roadmap
