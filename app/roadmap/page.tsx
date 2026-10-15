@@ -1,16 +1,35 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../lib/supabase/client";
-import { skills, generateTasks, type Level } from "../../lib/roadmaps";
+import {
+  MAX_DAYS,
+  MAX_HOURS,
+  MIN_DAYS,
+  basicsTopicCount,
+  buildPlan,
+  countTopics,
+  domains,
+  getDomain,
+  languageChoices,
+  levelOptions,
+  resolveLanguage,
+  resolveStack,
+  type Level,
+} from "../../lib/roadmaps";
 import AppShell from "../components/AppShell";
+
+type Config = { language?: string; stack?: string } | null;
 
 type Roadmap = {
   id: string;
   skill: string;
   level: string;
   hours_per_day: number;
+  duration_days: number | null;
+  config: Config;
 };
 
 type Task = {
@@ -20,7 +39,27 @@ type Task = {
   title: string;
   kind: string;
   done: boolean;
+  module: string | null;
+  link: string | null;
 };
+
+const ROADMAP_COLUMNS = "id, skill, level, hours_per_day, duration_days, config";
+const TASK_COLUMNS = "id, day_number, position, title, kind, done, module, link";
+const CHUNK = 400; // tasks saved per request
+
+const controlClass =
+  "w-full rounded-control border border-border bg-surface px-3 py-2.5 text-foreground outline-none transition-colors placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/30";
+
+const durationChoices = [
+  { id: "30", label: "30 days", note: "About a month" },
+  { id: "60", label: "60 days", note: "Two months" },
+  { id: "90", label: "90 days", note: "Three months" },
+  { id: "180", label: "6 months", note: "Steady pace" },
+  { id: "365", label: "1 year", note: "In depth" },
+  { id: "custom", label: "Custom", note: `${MIN_DAYS} to ${MAX_DAYS} days` },
+];
+
+const groups = Array.from(new Set(domains.map((d) => d.group)));
 
 function sortTasks(list: Task[]) {
   return [...list].sort(
@@ -86,11 +125,49 @@ export default function RoadmapPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [error, setError] = useState("");
 
-  const [skill, setSkill] = useState("dsa");
-  const [level, setLevel] = useState<Level>("beginner");
-  const [hours, setHours] = useState(1);
+  // What the student picks on the form
+  const [domainId, setDomainId] = useState<string | null>(null);
+  const [level, setLevel] = useState<Level | null>(null);
+  const [languageChoice, setLanguageChoice] = useState("");
+  const [stackChoice, setStackChoice] = useState("");
+  const [durationChoice, setDurationChoice] = useState("180");
+  const [customDays, setCustomDays] = useState("200");
+  const [hours, setHours] = useState(2);
   const [creating, setCreating] = useState(false);
   const [confirmRestart, setConfirmRestart] = useState(false);
+
+  const domain = domainId ? getDomain(domainId) : undefined;
+  const stack = domain ? resolveStack(domain, stackChoice) : undefined;
+  const languages = domain && level ? languageChoices(domain, level) : [];
+  const language = domain && level ? resolveLanguage(domain, level, languageChoice) : undefined;
+  const languageId = language?.id;
+
+  const customNumber = Math.round(Number(customDays));
+  const customValid =
+    customDays.trim() !== "" &&
+    Number.isFinite(customNumber) &&
+    customNumber >= MIN_DAYS &&
+    customNumber <= MAX_DAYS;
+  const duration =
+    durationChoice === "custom" ? (customValid ? customNumber : null) : Number(durationChoice);
+
+  const plan = useMemo(() => {
+    if (!domainId || !level || !duration) return null;
+    return buildPlan({ domainId, level, hours, duration, language: languageId, stack });
+  }, [domainId, level, hours, duration, languageId, stack]);
+
+  // Progress per module in the saved roadmap
+  const moduleRows = useMemo(() => {
+    const map = new Map<string, { name: string; total: number; done: number }>();
+    tasks.forEach((t) => {
+      if (!t.module) return;
+      const row = map.get(t.module) ?? { name: t.module, total: 0, done: 0 };
+      row.total += 1;
+      if (t.done) row.done += 1;
+      map.set(t.module, row);
+    });
+    return Array.from(map.values());
+  }, [tasks]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -114,7 +191,7 @@ export default function RoadmapPage() {
 
       const { data: rm, error: rmError } = await supabase
         .from("roadmaps")
-        .select("id, skill, level, hours_per_day")
+        .select(ROADMAP_COLUMNS)
         .eq("user_id", user.id)
         .maybeSingle();
 
@@ -127,14 +204,16 @@ export default function RoadmapPage() {
       if (rm) {
         const { data: list, error: taskError } = await supabase
           .from("roadmap_tasks")
-          .select("id, day_number, position, title, kind, done")
-          .eq("roadmap_id", rm.id);
+          .select(TASK_COLUMNS)
+          .eq("roadmap_id", rm.id)
+          .order("day_number", { ascending: true })
+          .limit(2000);
 
         if (taskError) {
           setError("Could not load your tasks: " + taskError.message);
         } else {
-          setRoadmap(rm);
-          setTasks(sortTasks(list ?? []));
+          setRoadmap(rm as Roadmap);
+          setTasks(sortTasks((list ?? []) as Task[]));
         }
       }
       setLoading(false);
@@ -145,6 +224,8 @@ export default function RoadmapPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
+    if (!plan || !plan.feasible || !domainId || !level || !duration) return;
+
     setCreating(true);
     setError("");
 
@@ -159,35 +240,50 @@ export default function RoadmapPage() {
         return;
       }
 
+      const config: { language?: string; stack?: string } = {};
+      if (languageId) config.language = languageId;
+      if (stack) config.stack = stack;
+
       const { data: rm, error: rmError } = await supabase
         .from("roadmaps")
-        .insert({ user_id: user.id, skill, level, hours_per_day: hours })
-        .select("id, skill, level, hours_per_day")
+        .insert({
+          user_id: user.id,
+          skill: domainId,
+          level,
+          hours_per_day: hours,
+          duration_days: duration,
+          config,
+        })
+        .select(ROADMAP_COLUMNS)
         .single();
 
       if (rmError || !rm) {
         throw new Error(rmError?.message ?? "Could not create your roadmap.");
       }
 
-      const rows = generateTasks(skill, level, hours).map((t) => ({
+      const rows = plan.tasks.map((t) => ({
         ...t,
         roadmap_id: rm.id,
         user_id: user.id,
       }));
 
-      const { data: inserted, error: taskError } = await supabase
-        .from("roadmap_tasks")
-        .insert(rows)
-        .select("id, day_number, position, title, kind, done");
+      const saved: Task[] = [];
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const { data: inserted, error: taskError } = await supabase
+          .from("roadmap_tasks")
+          .insert(rows.slice(i, i + CHUNK))
+          .select(TASK_COLUMNS);
 
-      if (taskError || !inserted) {
-        // Clean up so the student can try again
-        await supabase.from("roadmaps").delete().eq("id", rm.id);
-        throw new Error(taskError?.message ?? "Could not create your tasks.");
+        if (taskError || !inserted) {
+          // Clean up so the student can try again
+          await supabase.from("roadmaps").delete().eq("id", rm.id);
+          throw new Error(taskError?.message ?? "Could not create your tasks.");
+        }
+        saved.push(...(inserted as Task[]));
       }
 
-      setRoadmap(rm);
-      setTasks(sortTasks(inserted));
+      setRoadmap(rm as Roadmap);
+      setTasks(sortTasks(saved));
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Something went wrong. Please try again."
@@ -252,7 +348,7 @@ export default function RoadmapPage() {
     );
   }
 
-  // Values for the plan view
+  // Values for the saved plan
   const total = tasks.length;
   const doneCount = tasks.filter((t) => t.done).length;
   const percent = total ? Math.round((doneCount / total) * 100) : 0;
@@ -269,11 +365,29 @@ export default function RoadmapPage() {
           (d) => d <= lastDay
         );
   const daysDone = currentDay === null ? lastDay : Math.max(currentDay - 1, 0);
-  const skillName = skills.find((s) => s.id === roadmap?.skill)?.name ?? "";
 
-  // Preview shown on the form
-  const previewCount = generateTasks(skill, level, hours).length;
-  const previewDays = Math.ceil(previewCount / hours);
+  const viewDomain = roadmap ? getDomain(roadmap.skill) : undefined;
+  const skillName = viewDomain?.name ?? "Your roadmap";
+  const levelLabel = roadmap?.level
+    ? roadmap.level.charAt(0).toUpperCase() + roadmap.level.slice(1)
+    : "";
+  const viewLanguage = roadmap?.config?.language
+    ? getDomain(roadmap.config.language)?.name
+    : undefined;
+  const viewStack = viewDomain?.stacks?.find((s) => s.id === roadmap?.config?.stack)?.name;
+  const subtitle = roadmap
+    ? [
+        `${levelLabel} plan`,
+        viewStack,
+        viewLanguage ? `starts with ${viewLanguage}` : null,
+        `${roadmap.hours_per_day} hour${roadmap.hours_per_day > 1 ? "s" : ""} a day`,
+        `${lastDay} days`,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
+
+  const hoursLabel = `${hours} hour${hours > 1 ? "s" : ""} a day`;
 
   return (
     <AppShell userName={userName}>
@@ -290,85 +404,301 @@ export default function RoadmapPage() {
         <>
           <h1 className="text-3xl font-semibold sm:text-4xl">Build your roadmap</h1>
           <p className="mt-2 max-w-xl text-muted">
-            Pick a goal and how much time you have. We will turn it into a
-            day-by-day plan.
+            Choose what you want to learn, tell us your level and how long you have, and we will
+            build a day-by-day plan. Every topic stays in your plan, whatever time you choose.
           </p>
 
           <form onSubmit={handleCreate} className="mt-8 space-y-8">
+            {/* 1. Subject */}
             <fieldset>
               <legend className="mb-3 font-semibold">What do you want to learn?</legend>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {skills.map((s) => (
-                  <ChoiceCard
-                    key={s.id}
-                    name="skill"
-                    checked={skill === s.id}
-                    onChange={() => setSkill(s.id)}
-                  >
-                    <p className="font-medium">{s.name}</p>
-                    <p className="mt-1 text-sm text-muted">{s.description}</p>
-                  </ChoiceCard>
+              <div className="space-y-5">
+                {groups.map((g) => (
+                  <div key={g}>
+                    <p className="mb-2 text-sm text-muted">{g}</p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {domains
+                        .filter((d) => d.group === g)
+                        .map((d) => (
+                          <ChoiceCard
+                            key={d.id}
+                            name="domain"
+                            checked={domainId === d.id}
+                            onChange={() => {
+                              setDomainId(d.id);
+                              setLanguageChoice("");
+                              setStackChoice("");
+                            }}
+                          >
+                            <p className="font-medium">{d.name}</p>
+                            <p className="mt-1 text-sm text-muted">{d.description}</p>
+                          </ChoiceCard>
+                        ))}
+                    </div>
+                  </div>
                 ))}
               </div>
             </fieldset>
 
-            <fieldset>
-              <legend className="mb-3 font-semibold">Where are you now?</legend>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <ChoiceCard
-                  name="level"
-                  checked={level === "beginner"}
-                  onChange={() => setLevel("beginner")}
-                >
-                  <p className="font-medium">Beginner</p>
-                  <p className="mt-1 text-sm text-muted">Start from the basics</p>
-                </ChoiceCard>
-                <ChoiceCard
-                  name="level"
-                  checked={level === "intermediate"}
-                  onChange={() => setLevel("intermediate")}
-                >
-                  <p className="font-medium">Intermediate</p>
-                  <p className="mt-1 text-sm text-muted">I know the basics already</p>
-                </ChoiceCard>
-              </div>
-            </fieldset>
+            {/* 2. Level */}
+            {domain && (
+              <fieldset>
+                <legend className="mb-3 font-semibold">
+                  What is your level in {domain.name}?
+                </legend>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {levelOptions.map((l) => (
+                    <ChoiceCard
+                      key={l.id}
+                      name="level"
+                      checked={level === l.id}
+                      onChange={() => setLevel(l.id)}
+                    >
+                      <p className="font-medium">{l.name}</p>
+                      <p className="mt-1 text-sm text-muted">{l.note}</p>
+                      <p className="mt-2 text-xs text-muted">
+                        {countTopics(domain.id, l.id, stack, languageChoice)} topics
+                      </p>
+                    </ChoiceCard>
+                  ))}
+                </div>
+              </fieldset>
+            )}
 
-            <fieldset>
-              <legend className="mb-3 font-semibold">
-                How much time can you study each day?
-              </legend>
-              <div className="grid gap-3 sm:grid-cols-3">
-                {[1, 2, 3].map((h) => (
-                  <ChoiceCard
-                    key={h}
-                    name="hours"
-                    checked={hours === h}
-                    onChange={() => setHours(h)}
-                  >
-                    <p className="font-medium">{h === 1 ? "1 hour" : `${h} hours`}</p>
-                    <p className="mt-1 text-sm text-muted">
-                      {h} task{h > 1 ? "s" : ""} a day
+            {/* 3a. Language first */}
+            {domain && level && languages.length > 0 && (
+              <fieldset>
+                <legend className="mb-1 font-semibold">Pick a language to start with</legend>
+                <p className="mb-3 text-sm text-muted">
+                  To learn {domain.name} from scratch you first need one programming language.
+                  Choose the one you want to code in. The first part of your plan covers its
+                  basics.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {languages.map((l) => (
+                    <ChoiceCard
+                      key={l.id}
+                      name="language"
+                      checked={languageId === l.id}
+                      onChange={() => setLanguageChoice(l.id)}
+                    >
+                      <p className="font-medium">{l.name}</p>
+                      <p className="mt-1 text-sm text-muted">
+                        Basics: {basicsTopicCount(l)} topics
+                      </p>
+                    </ChoiceCard>
+                  ))}
+                </div>
+              </fieldset>
+            )}
+
+            {/* 3b. Tech stack */}
+            {domain && level && domain.stacks && (
+              <fieldset>
+                <legend className="mb-1 font-semibold">Choose your tech stack</legend>
+                <p className="mb-3 text-sm text-muted">
+                  Everyone starts with HTML, CSS and JavaScript. The stack decides the backend you
+                  learn after that.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {domain.stacks.map((s) => (
+                    <ChoiceCard
+                      key={s.id}
+                      name="stack"
+                      checked={stack === s.id}
+                      onChange={() => setStackChoice(s.id)}
+                    >
+                      <p className="font-medium">{s.name}</p>
+                      <p className="mt-1 text-sm text-muted">{s.note}</p>
+                    </ChoiceCard>
+                  ))}
+                </div>
+              </fieldset>
+            )}
+
+            {domain && level && (
+              <>
+                {/* 4. Duration */}
+                <fieldset>
+                  <legend className="mb-3 font-semibold">How long do you have?</legend>
+                  <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                    {durationChoices.map((d) => (
+                      <ChoiceCard
+                        key={d.id}
+                        name="duration"
+                        checked={durationChoice === d.id}
+                        onChange={() => setDurationChoice(d.id)}
+                      >
+                        <p className="font-medium">{d.label}</p>
+                        <p className="mt-1 text-sm text-muted">{d.note}</p>
+                      </ChoiceCard>
+                    ))}
+                  </div>
+
+                  {durationChoice === "custom" && (
+                    <div className="mt-3 max-w-xs">
+                      <label htmlFor="custom-days" className="mb-1.5 block text-sm font-medium">
+                        Number of days
+                      </label>
+                      <input
+                        id="custom-days"
+                        type="number"
+                        inputMode="numeric"
+                        min={MIN_DAYS}
+                        max={MAX_DAYS}
+                        value={customDays}
+                        onChange={(e) => setCustomDays(e.target.value)}
+                        className={controlClass}
+                      />
+                      <p className="mt-1 text-xs text-muted">
+                        Between {MIN_DAYS} and {MAX_DAYS} days (one year at most).
+                      </p>
+                    </div>
+                  )}
+                </fieldset>
+
+                {/* 5. Hours */}
+                <fieldset>
+                  <legend className="mb-3 font-semibold">
+                    How much time can you study each day?
+                  </legend>
+                  <div className="grid gap-3 sm:grid-cols-4">
+                    {Array.from({ length: MAX_HOURS }, (_, i) => i + 1).map((h) => (
+                      <ChoiceCard
+                        key={h}
+                        name="hours"
+                        checked={hours === h}
+                        onChange={() => setHours(h)}
+                      >
+                        <p className="font-medium">{h === 1 ? "1 hour" : `${h} hours`}</p>
+                        <p className="mt-1 text-sm text-muted">
+                          {h} task{h > 1 ? "s" : ""} a day
+                        </p>
+                      </ChoiceCard>
+                    ))}
+                  </div>
+                </fieldset>
+
+                {/* Preview */}
+                <div className="glass space-y-3 px-5 py-4 text-sm text-muted" aria-live="polite">
+                  {!duration && (
+                    <p>
+                      Enter a number of days between {MIN_DAYS} and {MAX_DAYS} to see your plan.
                     </p>
-                  </ChoiceCard>
-                ))}
-              </div>
-            </fieldset>
+                  )}
 
-            <div className="glass px-5 py-4 text-sm text-muted">
-              Your plan will have{" "}
-              <span className="font-semibold text-foreground">{previewCount} tasks</span>{" "}
-              over about{" "}
-              <span className="font-semibold text-foreground">{previewDays} study days</span>.
-            </div>
+                  {plan && plan.feasible && (
+                    <>
+                      <p>
+                        Your plan has{" "}
+                        <span className="font-semibold text-foreground">
+                          {plan.tasks.length} tasks
+                        </span>{" "}
+                        over{" "}
+                        <span className="font-semibold text-foreground">
+                          {plan.days} study days
+                        </span>
+                        . It covers all{" "}
+                        <span className="font-semibold text-foreground">{plan.topics} topics</span>
+                        , nothing is skipped.
+                      </p>
 
-            <button
-              type="submit"
-              disabled={creating}
-              className="w-full rounded-control bg-accent py-3 font-medium text-on-accent shadow-[0_8px_30px_-8px_var(--accent)] transition hover:bg-accent-hover disabled:opacity-60"
-            >
-              {creating ? "Building your plan..." : "Create my roadmap"}
-            </button>
+                      {plan.languageName && (
+                        <p>
+                          It starts with {plan.languageName} basics, about {plan.languageDays}{" "}
+                          days, so you can write code before the main topics begin.
+                        </p>
+                      )}
+
+                      {plan.tasks.length < plan.topics * 1.5 && (
+                        <p>
+                          Time is tight, so each topic gets one combined learn-and-practice task.
+                          More days add separate practice sets and reviews.
+                        </p>
+                      )}
+
+                      {plan.earlyFinish && (
+                        <p>
+                          You can finish in about {plan.days} days, earlier than the {duration}{" "}
+                          days you chose. Use the extra time for the Practice section.
+                        </p>
+                      )}
+
+                      <details>
+                        <summary className="cursor-pointer font-medium text-accent">
+                          See everything in your plan ({plan.modules.length} modules)
+                        </summary>
+                        <ul className="mt-3 space-y-1.5">
+                          {plan.modules.map((m) => (
+                            <li key={m.name} className="flex justify-between gap-4">
+                              <span className="text-foreground">{m.name}</span>
+                              <span className="shrink-0">
+                                {m.topics} topics, {m.tasks} tasks
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    </>
+                  )}
+
+                  {plan && !plan.feasible && (
+                    <>
+                      <p className="font-medium text-foreground">
+                        That is too short to cover all {plan.topics} topics at {hoursLabel}.
+                      </p>
+                      {plan.minDays <= MAX_DAYS ? (
+                        <>
+                          <p>
+                            Covering everything at this pace needs at least{" "}
+                            <span className="font-semibold text-foreground">
+                              {plan.minDays} days
+                            </span>
+                            . Nothing is skipped, so the plan needs this much time. You can also
+                            study more hours a day.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDurationChoice("custom");
+                              setCustomDays(String(Math.max(MIN_DAYS, plan.minDays)));
+                            }}
+                            className="rounded-control bg-accent px-4 py-2 text-sm font-medium text-on-accent transition hover:bg-accent-hover"
+                          >
+                            Use {plan.minDays} days
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <p>
+                            Even a full year is not enough at this pace. You need at least{" "}
+                            <span className="font-semibold text-foreground">
+                              {plan.minHours} hours a day
+                            </span>{" "}
+                            to cover everything within one year.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setHours(Math.min(MAX_HOURS, plan.minHours))}
+                            className="rounded-control bg-accent px-4 py-2 text-sm font-medium text-on-accent transition hover:bg-accent-hover"
+                          >
+                            Use {Math.min(MAX_HOURS, plan.minHours)} hours a day
+                          </button>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={creating || !plan || !plan.feasible}
+                  className="w-full rounded-control bg-accent py-3 font-medium text-on-accent shadow-[0_8px_30px_-8px_var(--accent)] transition hover:bg-accent-hover disabled:opacity-60"
+                >
+                  {creating ? "Building your plan..." : "Create my roadmap"}
+                </button>
+              </>
+            )}
           </form>
         </>
       ) : (
@@ -376,10 +706,7 @@ export default function RoadmapPage() {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h1 className="text-3xl font-semibold sm:text-4xl">{skillName}</h1>
-              <p className="mt-1 text-muted">
-                {roadmap.level === "beginner" ? "Beginner" : "Intermediate"} plan,{" "}
-                {roadmap.hours_per_day} hour{roadmap.hours_per_day > 1 ? "s" : ""} a day
-              </p>
+              <p className="mt-1 text-muted">{subtitle}</p>
             </div>
             {!confirmRestart && (
               <button
@@ -445,6 +772,42 @@ export default function RoadmapPage() {
             </div>
           </section>
 
+          {moduleRows.length > 0 && (
+            <details className="glass mt-4 p-5">
+              <summary className="cursor-pointer text-sm font-medium">
+                Progress by module ({moduleRows.length})
+              </summary>
+              <ul className="mt-4 space-y-3">
+                {moduleRows.map((m) => {
+                  const pct = Math.round((m.done / m.total) * 100);
+                  return (
+                    <li key={m.name}>
+                      <div className="flex justify-between gap-4 text-sm">
+                        <span>{m.name}</span>
+                        <span className="shrink-0 text-muted">
+                          {m.done} of {m.total}
+                        </span>
+                      </div>
+                      <div
+                        role="progressbar"
+                        aria-label={`${m.name} progress`}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={pct}
+                        className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-strong"
+                      >
+                        <div
+                          className="h-full rounded-full bg-accent"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </details>
+          )}
+
           {currentDay === null ? (
             <section className="glass mt-8 p-8 text-center">
               <h2 className="text-xl font-semibold">Roadmap complete</h2>
@@ -475,8 +838,8 @@ export default function RoadmapPage() {
                     <p className="text-sm font-medium text-glow">Today, Day {currentDay}</p>
                     <ul className="mt-3 space-y-2">
                       {todayTasks.map((task) => (
-                        <li key={task.id}>
-                          <label className="flex cursor-pointer items-start gap-3 rounded-control p-2 transition-colors hover:bg-surface-strong">
+                        <li key={task.id} className="flex items-center gap-2">
+                          <label className="flex flex-1 cursor-pointer items-start gap-3 rounded-control p-2 transition-colors hover:bg-surface-strong">
                             <input
                               type="checkbox"
                               checked={task.done}
@@ -484,15 +847,28 @@ export default function RoadmapPage() {
                               className="peer sr-only"
                             />
                             <CheckBox done={task.done} />
-                            <span
-                              className={`flex-1 ${task.done ? "text-muted line-through" : ""}`}
-                            >
-                              {task.title}
+                            <span className="flex-1">
+                              <span className={task.done ? "text-muted line-through" : ""}>
+                                {task.title}
+                              </span>
+                              {task.module && (
+                                <span className="mt-0.5 block text-xs text-muted">
+                                  {task.module}
+                                </span>
+                              )}
                             </span>
                             <span className="rounded-full border border-border bg-surface-strong px-2.5 py-0.5 text-xs capitalize text-muted">
                               {task.kind}
                             </span>
                           </label>
+                          {task.link && (
+                            <Link
+                              href={task.link}
+                              className="shrink-0 rounded-control border border-border bg-surface px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-surface-strong"
+                            >
+                              Open questions
+                            </Link>
+                          )}
                         </li>
                       ))}
                     </ul>

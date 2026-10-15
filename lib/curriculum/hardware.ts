@@ -1,0 +1,251 @@
+import { mod, type Domain } from "./types";
+
+export const vlsi: Domain = {
+  id: "vlsi",
+  name: "VLSI",
+  description: "Digital design, CMOS, Verilog, FPGA, physical design and verification",
+  group: "Electronics and design",
+  modules: [
+    // ---------- Beginner ----------
+    mod("vlsi-digital", "Digital electronics foundations", "beginner", [
+      "Number systems and codes",
+      "Boolean algebra and logic gates|2",
+      "Karnaugh maps and minimization|2",
+      "Combinational circuits: adders, multiplexers and decoders|3",
+      "Sequential circuits: latches and flip-flops|3",
+      "Counters and registers|2",
+      "Finite state machines|3",
+      "Memories: ROM, RAM and PLDs",
+    ]),
+    mod("vlsi-cmos", "Semiconductor and CMOS basics", "beginner", [
+      "Semiconductor physics basics",
+      "The PN junction diode",
+      "MOSFET structure and operation|3",
+      "The CMOS inverter|3",
+      "CMOS logic gates and pull-up and pull-down networks|2",
+      "Delay, power and noise margin|2",
+      "Layout basics and design rules",
+    ]),
+
+    // ---------- Intermediate ----------
+    mod("vlsi-verilog", "Verilog and HDL", "intermediate", [
+      "Introduction to HDL and the design flow",
+      "Verilog modules and ports",
+      "Data types, operators and number formats",
+      "Dataflow, gate-level and behavioral modelling|3",
+      "always blocks: blocking and non-blocking assignments|3",
+      "Combinational design in Verilog|2",
+      "Sequential design in Verilog|2",
+      "FSM design in Verilog|3",
+      "Testbenches and simulation|3",
+      "Tasks, functions and parameters",
+      "Using simulators: ModelSim or Vivado|2",
+      "Mini project: a UART transmitter or an ALU|3",
+    ]),
+    mod("vlsi-design", "Digital design in depth", "intermediate", [
+      "Timing: setup, hold and clock skew|3",
+      "Metastability and clock domain crossing|2",
+      "Pipelining and datapath design|2",
+      "FIFO and memory design",
+      "Design for low power",
+      "Computer architecture basics",
+    ]),
+
+    // ---------- Advanced ----------
+    mod("vlsi-physical", "FPGA and RTL to GDSII", "advanced", [
+      "FPGA architecture",
+      "FPGA design flow and constraints|2",
+      "Synthesis",
+      "Static timing analysis|3",
+      "Floorplanning and placement|2",
+      "Clock tree synthesis",
+      "Routing",
+      "Physical verification: DRC and LVS",
+      "Power analysis and optimization",
+      "EDA tools overview: Cadence, Synopsys and open source",
+      "Mini project: an FPGA design|3",
+    ]),
+    mod("vlsi-verification", "Verification and SystemVerilog", "advanced", [
+      "SystemVerilog basics|2",
+      "Object-oriented testbenches|2",
+      "Randomization and constraints",
+      "Assertions|2",
+      "Functional coverage",
+      "UVM basics|3",
+      "Writing a verification plan",
+    ]),
+    mod("vlsi-analog", "Analog and interview preparation", "advanced", [
+      "Small-signal MOSFET models",
+      "Single-stage amplifiers",
+      "Current mirrors and differential pairs|2",
+      "Operational amplifiers|2",
+      "Data converters: ADC and DAC",
+      "VLSI interview questions|3",
+    ]),
+  ],
+};
+
+export const embedded: Domain = {
+  id: "embedded",
+  name: "Embedded systems",
+  description: "Electronics, C for microcontrollers, protocols, RTOS, Linux and IoT",
+  group: "Electronics and design",
+  modules: [
+    // ---------- Beginner ----------
+    mod("emb-electronics", "Electronics basics", "beginner", [
+      "Voltage, current, resistance and Ohm's law",
+      "Passive components: resistors, capacitors and inductors|2",
+      "Diodes, LEDs and transistors|2",
+      "Reading datasheets|2",
+      "Breadboards and multimeters",
+      "Basic digital logic",
+    ]),
+    mod("emb-c", "C for embedded systems", "beginner", [
+      "C syntax refresher|2",
+      "Pointers and memory|3",
+      "Bitwise operations and register manipulation|3",
+      "Structures, unions and enums",
+      "volatile, const and static",
+      "Compiling, linking and the toolchain",
+      "Memory map: flash, RAM and stack",
+    ]),
+
+    // ---------- Intermediate ----------
+    mod("emb-mcu", "Microcontroller fundamentals", "intermediate", [
+      "Microcontroller architecture (ARM Cortex-M)|2",
+      "Development boards: Arduino and STM32|2",
+      "GPIO|2",
+      "Clocks and reset",
+      "Timers and PWM|3",
+      "Interrupts and the NVIC|3",
+      "ADC and DAC|2",
+      "Watchdog timer",
+      "Low power modes",
+      "Debugging with a debugger, JTAG and SWD",
+    ]),
+    mod("emb-protocols", "Communication protocols", "intermediate", [
+      "UART|3",
+      "SPI|3",
+      "I2C|3",
+      "CAN bus|2",
+      "USB basics",
+      "RS-485 and Modbus basics",
+      "Wireless: Bluetooth Low Energy and Wi-Fi|2",
+      "LoRa basics",
+    ]),
+    mod("emb-sensors", "Sensors and actuators", "intermediate", [
+      "Temperature, humidity and light sensors",
+      "Ultrasonic and IR sensors",
+      "Accelerometer and gyroscope|2",
+      "Motor drivers: DC and stepper motors|2",
+      "Servo motors",
+      "Displays: LCD and OLED",
+      "Signal conditioning and filtering",
+    ]),
+
+    // ---------- Advanced ----------
+    mod("emb-rtos", "RTOS and software design", "advanced", [
+      "Why an RTOS: tasks and scheduling|3",
+      "FreeRTOS tasks, queues and semaphores|3",
+      "Mutexes and priority inversion|2",
+      "Interrupts with an RTOS",
+      "Memory management in embedded systems",
+      "Bootloaders and firmware updates|2",
+      "State machine design|2",
+      "Embedded Linux basics|3",
+      "Linux device driver basics|2",
+      "Writing and testing portable embedded code|2",
+    ]),
+    mod("emb-iot", "Hardware and IoT", "advanced", [
+      "PCB design basics with KiCad|3",
+      "Power supply design",
+      "IoT architecture and MQTT|2",
+      "Connecting devices to the cloud",
+      "Security in embedded systems",
+      "Standards: MISRA C and functional safety basics",
+      "Mini project: a sensor data logger|3",
+      "Capstone: an IoT or robotics product|3",
+    ]),
+  ],
+};
+
+export const cad: Domain = {
+  id: "cad",
+  name: "AutoCAD design",
+  description: "2D drafting, annotation, 3D modelling and portfolio projects",
+  group: "Electronics and design",
+  modules: [
+    // ---------- Beginner ----------
+    mod("cad-start", "Getting started", "beginner", [
+      "What CAD is and where it is used",
+      "Installing AutoCAD and the interface|2",
+      "Workspaces, the ribbon and the command line",
+      "Units, limits and drawing setup|2",
+      "Navigating: zoom, pan and orbit",
+      "Saving files and templates",
+    ]),
+    mod("cad-2d", "2D drawing", "beginner", [
+      "Line, polyline and circle|2",
+      "Arc, ellipse, rectangle and polygon",
+      "Coordinate systems: absolute, relative and polar|2",
+      "Object snaps and tracking|2",
+      "Selecting objects",
+      "Layers, colours and linetypes|2",
+    ]),
+    mod("cad-edit", "2D editing", "beginner", [
+      "Move, copy, rotate and scale|2",
+      "Trim, extend and fillet|2",
+      "Offset, mirror and array|2",
+      "Stretch, break and join",
+      "Hatching and gradients",
+      "Grips and properties",
+    ]),
+
+    // ---------- Intermediate ----------
+    mod("cad-annotation", "Annotation and documentation", "intermediate", [
+      "Text and multiline text",
+      "Dimensioning|3",
+      "Dimension styles",
+      "Leaders and tolerances",
+      "Tables",
+      "Blocks and attributes|3",
+      "External references",
+      "Layouts, viewports and paper space|3",
+      "Plotting and PDF export|2",
+      "Drafting standards and title blocks|2",
+    ]),
+    mod("cad-productivity", "Productivity tools", "intermediate", [
+      "Templates and styles",
+      "Design Center and tool palettes",
+      "Parametric constraints|2",
+      "Dynamic blocks",
+      "Custom commands and aliases",
+      "Data extraction",
+    ]),
+
+    // ---------- Advanced ----------
+    mod("cad-3d", "3D modelling", "advanced", [
+      "The 3D workspace and coordinate systems|2",
+      "Extrude, revolve, sweep and loft|3",
+      "Boolean operations: union, subtract and intersect|2",
+      "Editing solids: fillet, chamfer and shell|2",
+      "Surface modelling",
+      "Mesh modelling",
+      "Sections and 2D views from 3D",
+      "Materials, lights and rendering|2",
+      "Visual styles and walkthroughs",
+    ]),
+    mod("cad-applied", "Applied drafting and projects", "advanced", [
+      "Mechanical drawings: orthographic and isometric|3",
+      "Engineering drawing standards (BIS and ISO)|2",
+      "Architectural plans, elevations and sections|3",
+      "Electrical and plumbing layout basics",
+      "Introduction to Revit or Fusion 360",
+      "Importing and exporting: DXF, DWG and STEP|2",
+      "Introduction to 3D printing and CNC output",
+      "Portfolio project 1: a mechanical part drawing set|3",
+      "Portfolio project 2: a floor plan with sections|3",
+      "Preparing for AutoCAD certification|2",
+    ]),
+  ],
+};
