@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { generateReply, type ChatTurn } from "@/lib/ai/provider";
+import { getRoadmapContext } from "@/lib/ai/roadmap-context";
 import {
   buildSystemPrompt,
   MODES,
@@ -97,10 +98,15 @@ export async function POST(request: Request) {
   while (history.length > 0 && history[0].role !== "user") history.shift();
   const messages: ChatTurn[] = [...history, { role: "user", content: message }];
 
-  // 7. Ask the AI
+  // 7. Ask the AI (with a short summary of the student's roadmap)
+  const roadmapContext = await getRoadmapContext(supabase, user.id);
+
   let result;
   try {
-    result = await generateReply(buildSystemPrompt(mode, language), messages);
+    result = await generateReply(
+      buildSystemPrompt(mode, language, roadmapContext),
+      messages
+    );
   } catch {
     return fail("The AI is busy right now. Please try again in a minute.", 503);
   }
