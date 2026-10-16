@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../lib/supabase/client";
 import { getDomain } from "../../lib/roadmaps";
-import { topics } from "../../lib/problems";
 import AppShell from "../components/AppShell";
 
 type Client = ReturnType<typeof createClient>;
@@ -39,9 +38,6 @@ type Card = RoadmapRow & {
 
 const TASK_COLUMNS = "id, day_number, position, title, kind, done, module, link";
 const WARN_HOURS = 6;
-
-const allProblemIds = new Set(topics.flatMap((t) => t.problems.map((p) => p.id)));
-const totalProblems = allProblemIds.size;
 
 // The current time is passed in after the page loads, never read while rendering
 function greeting(now: Date | null) {
@@ -187,6 +183,7 @@ export default function DashboardPage() {
   const [cards, setCards] = useState<Card[]>([]);
   const [completions, setCompletions] = useState<Record<string, string>>({}); // task id -> finished at
   const [solved, setSolved] = useState(0);
+  const [totalProblems, setTotalProblems] = useState(0);
   const [pendingRequests, setPendingRequests] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [error, setError] = useState("");
@@ -213,7 +210,7 @@ export default function DashboardPage() {
       }
       setEmail(user.email ?? "");
 
-      const [profileRes, roadmapRes, solvedRes, requestRes, messageRes, doneRes] =
+      const [profileRes, roadmapRes, solvedRes, topicsRes, requestRes, messageRes, doneRes] =
         await Promise.all([
           supabase
             .from("profiles")
@@ -228,7 +225,9 @@ export default function DashboardPage() {
             .from("problem_progress")
             .select("problem_id")
             .eq("user_id", user.id)
-            .eq("status", "solved"),
+            .eq("status", "solved")
+            .like("problem_id", "dsa-%"),
+          supabase.from("question_topics").select("total").eq("subject", "dsa"),
           supabase
             .from("partner_requests")
             .select("id", { count: "exact", head: true })
@@ -253,9 +252,8 @@ export default function DashboardPage() {
 
       setFullName(profileRes.data?.full_name?.trim() ?? "");
       setCollege(profileRes.data?.college ?? null);
-      setSolved(
-        (solvedRes.data ?? []).filter((r) => allProblemIds.has(r.problem_id)).length
-      );
+      setSolved((solvedRes.data ?? []).length);
+      setTotalProblems((topicsRes.data ?? []).reduce((sum, t) => sum + t.total, 0));
       setPendingRequests(requestRes.count ?? 0);
       setUnreadMessages(messageRes.count ?? 0);
 
@@ -268,6 +266,7 @@ export default function DashboardPage() {
       let firstError =
         roadmapRes.error?.message ??
         solvedRes.error?.message ??
+        topicsRes.error?.message ??
         requestRes.error?.message ??
         messageRes.error?.message ??
         doneRes.error?.message ??
