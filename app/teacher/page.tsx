@@ -5,10 +5,20 @@ import { useRouter } from "next/navigation";
 import { createClient } from "../../lib/supabase/client";
 import AppShell from "../components/AppShell";
 
-type Msg = { role: "user" | "assistant"; content: string };
+type Msg = { role: "user" | "assistant"; content: string; hint_level?: number | null };
 type Thread = { id: string; title: string; updated_at: string };
 
 const MAX_CHARS = 2000;
+const MAX_HINT = 4;
+const DEFAULT_HINT_TEXT = "I am stuck. Please give me a hint.";
+
+// Button label for the NEXT hint level
+const HINT_BUTTON: Record<number, string> = {
+  1: "I'm stuck: give me a nudge",
+  2: "Give me a stronger hint",
+  3: "Explain the approach in words",
+  4: "Show the full solution",
+};
 
 export default function TeacherPage() {
   const router = useRouter();
@@ -23,6 +33,7 @@ export default function TeacherPage() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [threadId, setThreadId] = useState<string | null>(null);
+  const [hintUsed, setHintUsed] = useState(0); // highest hint level used in this chat
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [usage, setUsage] = useState<{ used: number; limit: number } | null>(null);
@@ -87,22 +98,24 @@ export default function TeacherPage() {
     const supabase = createClient();
     const { data, error: loadError } = await supabase
       .from("chat_messages")
-      .select("role, content")
+      .select("role, content, hint_level")
       .eq("thread_id", id)
       .order("created_at", { ascending: true });
 
     if (loadError) {
       setError("Could not open that chat. Please try again.");
     } else {
-      setMessages((data ?? []) as Msg[]);
+      const rows = (data ?? []) as Msg[];
+      setMessages(rows);
+      setHintUsed(Math.max(0, ...rows.map((r) => r.hint_level ?? 0)));
       setThreadId(id);
       setShowList(false);
     }
     setOpeningChat(false);
   }
 
-  async function handleSend() {
-    const text = input.trim();
+  // Sends one message. hintLevel 0 = a normal message, 1 to 4 = ask for a hint.
+  async function send(text: string, hintLevel: number, restoreOnFail: boolean) {
     if (!text || sending || openingChat) return;
 
     setError("");
@@ -114,35 +127,60 @@ export default function TeacherPage() {
       const res = await fetch("/api/teacher/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ threadId, message: text }),
+        body: JSON.stringify({ threadId, message: text, hintLevel }),
       });
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         setError(data.error ?? "Something went wrong. Please try again.");
         setMessages((m) => m.slice(0, -1));
-        setInput(text);
+        if (restoreOnFail) setInput(text);
       } else {
         setThreadId(data.threadId);
-        setMessages((m) => [...m, { role: "assistant", content: data.reply }]);
+        setHintUsed(Number(data.threadHintLevel) || 0);
+        setMessages((m) => [
+          ...m,
+          { role: "assistant", content: data.reply, hint_level: Number(data.hintLevel) || 0 },
+        ]);
         setUsage({ used: data.usedToday, limit: data.dailyLimit });
         fetchThreads();
       }
     } catch {
       setError("Could not reach the server. Check your internet and try again.");
       setMessages((m) => m.slice(0, -1));
-      setInput(text);
+      if (restoreOnFail) setInput(text);
     } finally {
       setSending(false);
     }
   }
 
+  function handleSend() {
+    send(input.trim(), 0, true);
+  }
+
+  function handleHint() {
+    const next = Math.min(hintUsed + 1, MAX_HINT);
+    if (next === MAX_HINT) {
+      const ok = window.confirm(
+        "Have you tried the problem yourself? The full solution is best after you have tried. Show it now?"
+      );
+      if (!ok) return;
+    }
+    const typed = input.trim();
+    send(typed || DEFAULT_HINT_TEXT, next, typed.length > 0);
+  }
+
   function handleNewChat() {
     setMessages([]);
     setThreadId(null);
+    setHintUsed(0);
     setError("");
     setShowList(false);
   }
+
+  const nextHint = Math.min(hintUsed + 1, MAX_HINT);
+  const hintsDone = hintUsed >= MAX_HINT;
+  const canHint = !sending && !openingChat && !hintsDone && (messages.length > 0 || input.trim().length > 0);
 
   if (loading) {
     return (
@@ -249,14 +287,21 @@ export default function TeacherPage() {
                   key={i}
                   className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
                 >
-                  <div
-                    className={`max-w-[85%] whitespace-pre-wrap rounded-control px-4 py-3 text-sm leading-relaxed ${
-                      m.role === "user"
-                        ? "bg-accent text-on-accent"
-                        : "border border-border bg-surface"
-                    }`}
-                  >
-                    {m.content}
+                  <div className="max-w-[85%]">
+                    <div
+                      className={`whitespace-pre-wrap rounded-control px-4 py-3 text-sm leading-relaxed ${
+                        m.role === "user"
+                          ? "bg-accent text-on-accent"
+                          : "border border-border bg-surface"
+                      }`}
+                    >
+                      {m.content}
+                    </div>
+                    {m.role === "assistant" && (m.hint_level ?? 0) > 0 && (
+                      <p className="mt-1 px-1 text-xs text-muted">
+                        Hints used: {m.hint_level} of {MAX_HINT}
+                      </p>
+                    )}
                   </div>
                 </div>
               ))}
@@ -280,7 +325,20 @@ export default function TeacherPage() {
             </p>
           )}
 
-          <div className="mt-4 flex items-end gap-3">
+          {/* Hint ladder */}
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handleHint}
+              disabled={!canHint}
+              className="rounded-control border border-border bg-surface px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-surface-strong disabled:opacity-50"
+            >
+              {hintsDone ? "All hints used" : HINT_BUTTON[nextHint]}
+            </button>
+            <span className="text-xs text-muted">Hints used: {hintUsed} of {MAX_HINT}</span>
+          </div>
+
+          <div className="mt-3 flex items-end gap-3">
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}

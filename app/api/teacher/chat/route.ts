@@ -5,8 +5,10 @@ import {
   buildSystemPrompt,
   MODES,
   LANGUAGES,
+  HINT_LEVELS,
   type TeacherMode,
   type TeacherLanguage,
+  type HintLevel,
 } from "@/lib/ai/teacher-prompt";
 
 const MAX_CHARS = 2000;
@@ -21,6 +23,9 @@ function isMode(v: unknown): v is TeacherMode {
 }
 function isLanguage(v: unknown): v is TeacherLanguage {
   return typeof v === "string" && (LANGUAGES as readonly string[]).includes(v);
+}
+function isHintLevel(v: unknown): v is HintLevel {
+  return typeof v === "number" && (HINT_LEVELS as readonly number[]).includes(v);
 }
 
 export async function POST(request: Request) {
@@ -48,16 +53,26 @@ export async function POST(request: Request) {
   let mode: TeacherMode = isMode(body.mode) ? body.mode : "beginner";
   // Language is not stored on the thread yet; it comes from the request.
   const language: TeacherLanguage = isLanguage(body.language) ? body.language : "english";
+  // Highest hint level already used in this chat (0 for a new chat)
+  let currentHint = 0;
 
   if (threadId) {
     const { data: thread } = await supabase
       .from("chat_threads")
-      .select("id, mode")
+      .select("id, mode, hint_level")
       .eq("id", threadId)
       .maybeSingle();
     if (!thread) return fail("Chat not found.", 404);
     if (isMode(thread.mode)) mode = thread.mode;
+    currentHint = Number(thread.hint_level) || 0;
   }
+
+  // The hint ladder: the student can only go one step up at a time.
+  // 0 means a normal message (no hint). Level 4 is only reachable after level 3.
+  const requestedHint: HintLevel = isHintLevel(body.hintLevel) ? body.hintLevel : 0;
+  const hintLevel = (
+    requestedHint === 0 ? 0 : Math.min(requestedHint, currentHint + 1)
+  ) as HintLevel;
 
   // 4. Daily limit (the database function counts it safely)
   const limit = Number(process.env.AI_DAILY_LIMIT) || 30;
@@ -104,7 +119,7 @@ export async function POST(request: Request) {
   let result;
   try {
     result = await generateReply(
-      buildSystemPrompt(mode, language, roadmapContext),
+      buildSystemPrompt(mode, language, roadmapContext, hintLevel),
       messages
     );
   } catch {
@@ -121,6 +136,7 @@ export async function POST(request: Request) {
         user_id: user.id,
         role: "user",
         content: message,
+        hint_level: hintLevel,
         created_at: new Date(now).toISOString(),
       },
       {
@@ -128,6 +144,7 @@ export async function POST(request: Request) {
         user_id: user.id,
         role: "assistant",
         content: result.text,
+        hint_level: hintLevel,
         provider: result.provider,
         input_tokens: result.inputTokens,
         output_tokens: result.outputTokens,
@@ -140,9 +157,14 @@ export async function POST(request: Request) {
     return fail("Something went wrong. Please try again.", 500);
   }
 
+  // The chat remembers the highest hint level used so far
+  const threadHintLevel = Math.max(currentHint, hintLevel);
   await supabase
     .from("chat_threads")
-    .update({ updated_at: new Date().toISOString() })
+    .update({
+      updated_at: new Date().toISOString(),
+      hint_level: threadHintLevel,
+    })
     .eq("id", threadId);
 
   // 9. Send the reply back
@@ -153,5 +175,7 @@ export async function POST(request: Request) {
     reply: result.text,
     usedToday: used,
     dailyLimit: limit,
+    hintLevel,
+    threadHintLevel,
   });
 }
