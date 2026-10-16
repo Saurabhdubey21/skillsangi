@@ -50,7 +50,11 @@ export async function POST(request: Request) {
 
   // 3. If continuing a chat, make sure it is this student's thread
   let threadId = typeof body.threadId === "string" ? body.threadId : null;
-  let mode: TeacherMode = isMode(body.mode) ? body.mode : "beginner";
+  // Mode: a valid mode from the page wins. Otherwise use the chat's saved mode.
+  // Anything that is not in our fixed list is ignored.
+  const requestedMode: TeacherMode | null = isMode(body.mode) ? body.mode : null;
+  let mode: TeacherMode = requestedMode ?? "beginner";
+  let savedMode: TeacherMode | null = null; // the mode stored on the chat
   // Language is not stored on the thread yet; it comes from the request.
   const language: TeacherLanguage = isLanguage(body.language) ? body.language : "english";
   // Highest hint level already used in this chat (0 for a new chat)
@@ -63,7 +67,10 @@ export async function POST(request: Request) {
       .eq("id", threadId)
       .maybeSingle();
     if (!thread) return fail("Chat not found.", 404);
-    if (isMode(thread.mode)) mode = thread.mode;
+    if (isMode(thread.mode)) {
+      savedMode = thread.mode;
+      if (!requestedMode) mode = thread.mode;
+    }
     currentHint = Number(thread.hint_level) || 0;
   }
 
@@ -99,6 +106,7 @@ export async function POST(request: Request) {
       return fail("Something went wrong. Please try again.", 500);
     }
     threadId = created.id;
+    savedMode = mode;
   }
 
   // 6. Last messages as context (9 old + the new one = 10)
@@ -157,13 +165,15 @@ export async function POST(request: Request) {
     return fail("Something went wrong. Please try again.", 500);
   }
 
-  // The chat remembers the highest hint level used so far
+  // The chat remembers the highest hint level used so far.
+  // If the student switched mode, the chat remembers the new mode too.
   const threadHintLevel = Math.max(currentHint, hintLevel);
   await supabase
     .from("chat_threads")
     .update({
       updated_at: new Date().toISOString(),
       hint_level: threadHintLevel,
+      ...(savedMode !== mode ? { mode } : {}),
     })
     .eq("id", threadId);
 
@@ -177,5 +187,6 @@ export async function POST(request: Request) {
     dailyLimit: limit,
     hintLevel,
     threadHintLevel,
+    mode,
   });
 }

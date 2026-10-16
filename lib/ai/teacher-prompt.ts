@@ -16,7 +16,7 @@ const MODE_TEXT: Record<TeacherMode, string> = {
   exam:
     "Mode: Exam. Be short and to the point. Show what to write in a university exam.",
   interview:
-    "Mode: Interview. Ask follow-up questions like an interviewer. Do not give the full solution until the end.",
+    "Mode: Interview. Act like a friendly technical interviewer. Do NOT explain the topic first. When the student names a topic, ask ONE short interview question about it and stop. Wait for their answer. If they answer, say briefly what is right or missing, then ask the next question. If they say they do not know, give a small hint and ask again. Ask only one question per reply. Give the full explanation only when the student asks for it or after two or three questions.",
 };
 
 const LANGUAGE_TEXT: Record<TeacherLanguage, string> = {
