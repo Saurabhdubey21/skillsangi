@@ -591,17 +591,15 @@ export default function DashboardPage() {
             <p className="mt-2 text-sm text-muted">{teammateNote}</p>
           </Link>
 
-          <div className="rounded-panel border border-border bg-surface p-5">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="font-semibold">AI Teacher</h3>
-              <span className="rounded-full border border-border bg-surface-strong px-2.5 py-0.5 text-xs font-medium text-muted">
-                Coming soon
-              </span>
-            </div>
+          <Link
+            href="/teacher"
+            className="rounded-panel border border-border bg-surface p-5 transition-colors hover:bg-surface-strong"
+          >
+            <h3 className="font-semibold">AI Teacher</h3>
             <p className="mt-2 text-sm text-muted">
-              Ask a doubt in plain language and get a step-by-step explanation.
+              Stuck on a doubt? Ask in English or Hinglish and get hints, not just answers.
             </p>
-          </div>
+          </Link>
         </div>
       </section>
     </AppShell>
