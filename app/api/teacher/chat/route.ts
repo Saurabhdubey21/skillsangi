@@ -1,0 +1,151 @@
+import { createClient } from "@/lib/supabase/server";
+import { generateReply, type ChatTurn } from "@/lib/ai/provider";
+import {
+  buildSystemPrompt,
+  MODES,
+  LANGUAGES,
+  type TeacherMode,
+  type TeacherLanguage,
+} from "@/lib/ai/teacher-prompt";
+
+const MAX_CHARS = 2000;
+const CONTEXT_MESSAGES = 10;
+
+function fail(message: string, status: number) {
+  return Response.json({ error: message }, { status });
+}
+
+function isMode(v: unknown): v is TeacherMode {
+  return typeof v === "string" && (MODES as readonly string[]).includes(v);
+}
+function isLanguage(v: unknown): v is TeacherLanguage {
+  return typeof v === "string" && (LANGUAGES as readonly string[]).includes(v);
+}
+
+export async function POST(request: Request) {
+  // 1. Login check
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  const user = auth.user;
+  if (!user) return fail("Please log in.", 401);
+
+  // 2. Read and check the message
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return fail("Bad request.", 400);
+  }
+  const message = typeof body.message === "string" ? body.message.trim() : "";
+  if (!message) return fail("Please type a message.", 400);
+  if (message.length > MAX_CHARS) {
+    return fail(`Message is too long. Keep it under ${MAX_CHARS} characters.`, 400);
+  }
+
+  // 3. If continuing a chat, make sure it is this student's thread
+  let threadId = typeof body.threadId === "string" ? body.threadId : null;
+  let mode: TeacherMode = isMode(body.mode) ? body.mode : "beginner";
+  // Language is not stored on the thread yet; it comes from the request.
+  const language: TeacherLanguage = isLanguage(body.language) ? body.language : "english";
+
+  if (threadId) {
+    const { data: thread } = await supabase
+      .from("chat_threads")
+      .select("id, mode")
+      .eq("id", threadId)
+      .maybeSingle();
+    if (!thread) return fail("Chat not found.", 404);
+    if (isMode(thread.mode)) mode = thread.mode;
+  }
+
+  // 4. Daily limit (the database function counts it safely)
+  const limit = Number(process.env.AI_DAILY_LIMIT) || 30;
+  const { data: used, error: usageError } = await supabase.rpc("bump_ai_usage", {
+    p_limit: limit,
+  });
+  if (usageError) {
+    console.error("[teacher] usage error:", usageError.message);
+    return fail("Something went wrong. Please try again.", 500);
+  }
+  if (used === -1) {
+    return fail(`Daily limit of ${limit} messages reached. Please come back tomorrow.`, 429);
+  }
+
+  // 5. Create the thread if this is a new chat
+  if (!threadId) {
+    const { data: created, error: threadError } = await supabase
+      .from("chat_threads")
+      .insert({ user_id: user.id, title: message.slice(0, 60), mode })
+      .select("id")
+      .single();
+    if (threadError || !created) {
+      console.error("[teacher] thread error:", threadError?.message);
+      return fail("Something went wrong. Please try again.", 500);
+    }
+    threadId = created.id;
+  }
+
+  // 6. Last messages as context (9 old + the new one = 10)
+  const { data: rows } = await supabase
+    .from("chat_messages")
+    .select("role, content")
+    .eq("thread_id", threadId)
+    .order("created_at", { ascending: false })
+    .limit(CONTEXT_MESSAGES - 1);
+
+  const history = ((rows ?? []) as ChatTurn[]).reverse();
+  while (history.length > 0 && history[0].role !== "user") history.shift();
+  const messages: ChatTurn[] = [...history, { role: "user", content: message }];
+
+  // 7. Ask the AI
+  let result;
+  try {
+    result = await generateReply(buildSystemPrompt(mode, language), messages);
+  } catch {
+    return fail("The AI is busy right now. Please try again in a minute.", 503);
+  }
+
+  // 8. Save both messages
+  const now = Date.now();
+  const { data: saved, error: saveError } = await supabase
+    .from("chat_messages")
+    .insert([
+      {
+        thread_id: threadId,
+        user_id: user.id,
+        role: "user",
+        content: message,
+        created_at: new Date(now).toISOString(),
+      },
+      {
+        thread_id: threadId,
+        user_id: user.id,
+        role: "assistant",
+        content: result.text,
+        provider: result.provider,
+        input_tokens: result.inputTokens,
+        output_tokens: result.outputTokens,
+        created_at: new Date(now + 1).toISOString(),
+      },
+    ])
+    .select("id, role");
+  if (saveError) {
+    console.error("[teacher] save error:", saveError.message);
+    return fail("Something went wrong. Please try again.", 500);
+  }
+
+  await supabase
+    .from("chat_threads")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", threadId);
+
+  // 9. Send the reply back
+  const assistantRow = saved?.find((r) => r.role === "assistant");
+  return Response.json({
+    threadId,
+    messageId: assistantRow?.id ?? null,
+    reply: result.text,
+    usedToday: used,
+    dailyLimit: limit,
+  });
+}
