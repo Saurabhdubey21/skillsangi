@@ -4,11 +4,12 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../lib/supabase/client";
-import { skills } from "../../lib/roadmaps";
-import { topics } from "../../lib/problems";
+import { getDomain } from "../../lib/roadmaps";
 import AppShell from "../components/AppShell";
 
-type Roadmap = {
+type Client = ReturnType<typeof createClient>;
+
+type RoadmapRow = {
   id: string;
   skill: string;
   level: string;
@@ -22,11 +23,21 @@ type Task = {
   title: string;
   kind: string;
   done: boolean;
-  completed_at: string | null;
+  module: string | null;
+  link: string | null;
 };
 
-const allProblemIds = new Set(topics.flatMap((t) => t.problems.map((p) => p.id)));
-const totalProblems = allProblemIds.size;
+// One roadmap with the numbers and today's tasks the dashboard needs
+type Card = RoadmapRow & {
+  total: number;
+  done: number;
+  lastDay: number;
+  day: number | null;
+  tasks: Task[];
+};
+
+const TASK_COLUMNS = "id, day_number, position, title, kind, done, module, link";
+const WARN_HOURS = 6;
 
 // The current time is passed in after the page loads, never read while rendering
 function greeting(now: Date | null) {
@@ -41,13 +52,10 @@ function localDay(d: Date) {
   return d.toLocaleDateString("en-CA"); // YYYY-MM-DD in the student's own timezone
 }
 
-// Consecutive days with at least one finished task. Today does not break the streak until it ends.
-function computeStreak(tasks: Task[], now: Date) {
-  const days = new Set(
-    tasks
-      .filter((t) => t.done && t.completed_at)
-      .map((t) => localDay(new Date(t.completed_at as string)))
-  );
+// Consecutive days with at least one finished task, across every roadmap.
+// Today does not break the streak until it ends.
+function computeStreak(stamps: string[], now: Date) {
+  const days = new Set(stamps.map((s) => localDay(new Date(s))));
   const cursor = new Date(now);
   if (!days.has(localDay(cursor))) cursor.setDate(cursor.getDate() - 1);
   let streak = 0;
@@ -58,10 +66,68 @@ function computeStreak(tasks: Task[], now: Date) {
   return streak;
 }
 
-function sortTasks(list: Task[]) {
-  return [...list].sort(
-    (a, b) => a.day_number - b.day_number || a.position - b.position
-  );
+function isComplete(c: Card) {
+  return c.total > 0 && c.done >= c.total;
+}
+
+async function loadCard(supabase: Client, r: RoadmapRow) {
+  const [allRes, doneRes, nextRes, lastRes] = await Promise.all([
+    supabase
+      .from("roadmap_tasks")
+      .select("id", { count: "exact", head: true })
+      .eq("roadmap_id", r.id),
+    supabase
+      .from("roadmap_tasks")
+      .select("id", { count: "exact", head: true })
+      .eq("roadmap_id", r.id)
+      .eq("done", true),
+    supabase
+      .from("roadmap_tasks")
+      .select("day_number")
+      .eq("roadmap_id", r.id)
+      .eq("done", false)
+      .order("day_number", { ascending: true })
+      .limit(1),
+    supabase
+      .from("roadmap_tasks")
+      .select("day_number")
+      .eq("roadmap_id", r.id)
+      .order("day_number", { ascending: false })
+      .limit(1),
+  ]);
+
+  const day: number | null = nextRes.data?.[0]?.day_number ?? null;
+  let tasks: Task[] = [];
+  let taskError: string | null = null;
+
+  if (day !== null) {
+    const { data, error } = await supabase
+      .from("roadmap_tasks")
+      .select(TASK_COLUMNS)
+      .eq("roadmap_id", r.id)
+      .eq("day_number", day)
+      .order("position", { ascending: true });
+    if (error) taskError = error.message;
+    tasks = (data ?? []) as Task[];
+  }
+
+  const card: Card = {
+    ...r,
+    total: allRes.count ?? 0,
+    done: doneRes.count ?? 0,
+    lastDay: lastRes.data?.[0]?.day_number ?? 0,
+    day,
+    tasks,
+  };
+
+  const firstError =
+    allRes.error?.message ??
+    doneRes.error?.message ??
+    nextRes.error?.message ??
+    lastRes.error?.message ??
+    taskError;
+
+  return { card, error: firstError };
 }
 
 function Stat({
@@ -114,10 +180,10 @@ export default function DashboardPage() {
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [college, setCollege] = useState<string | null>(null);
-  const [roadmap, setRoadmap] = useState<Roadmap | null>(null);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [dayShown, setDayShown] = useState<number | null>(null);
+  const [cards, setCards] = useState<Card[]>([]);
+  const [completions, setCompletions] = useState<Record<string, string>>({}); // task id -> finished at
   const [solved, setSolved] = useState(0);
+  const [totalProblems, setTotalProblems] = useState(0);
   const [pendingRequests, setPendingRequests] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [error, setError] = useState("");
@@ -144,70 +210,82 @@ export default function DashboardPage() {
       }
       setEmail(user.email ?? "");
 
-      const [profileRes, roadmapRes, solvedRes, requestRes, messageRes] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("full_name, college")
-          .eq("id", user.id)
-          .maybeSingle(),
-        supabase
-          .from("roadmaps")
-          .select("id, skill, level, hours_per_day")
-          .eq("user_id", user.id)
-          .maybeSingle(),
-        supabase
-          .from("problem_progress")
-          .select("problem_id")
-          .eq("user_id", user.id)
-          .eq("status", "solved"),
-        supabase
-          .from("partner_requests")
-          .select("id", { count: "exact", head: true })
-          .eq("to_user", user.id)
-          .eq("status", "pending"),
-        supabase
-          .from("partner_messages")
-          .select("id", { count: "exact", head: true })
-          .eq("to_user", user.id)
-          .is("read_at", null),
-      ]);
+      const [profileRes, roadmapRes, solvedRes, topicsRes, requestRes, messageRes, doneRes] =
+        await Promise.all([
+          supabase
+            .from("profiles")
+            .select("full_name, college")
+            .eq("id", user.id)
+            .maybeSingle(),
+          supabase
+            .from("roadmaps")
+            .select("id, skill, level, hours_per_day")
+            .eq("user_id", user.id),
+          supabase
+            .from("problem_progress")
+            .select("problem_id")
+            .eq("user_id", user.id)
+            .eq("status", "solved")
+            .like("problem_id", "dsa-%"),
+          supabase.from("question_topics").select("total").eq("subject", "dsa"),
+          supabase
+            .from("partner_requests")
+            .select("id", { count: "exact", head: true })
+            .eq("to_user", user.id)
+            .eq("status", "pending"),
+          supabase
+            .from("partner_messages")
+            .select("id", { count: "exact", head: true })
+            .eq("to_user", user.id)
+            .is("read_at", null),
+          supabase
+            .from("roadmap_tasks")
+            .select("id, completed_at")
+            .eq("user_id", user.id)
+            .eq("done", true)
+            .not("completed_at", "is", null)
+            .order("completed_at", { ascending: false })
+            .limit(1000),
+        ]);
 
       if (!active) return;
 
       setFullName(profileRes.data?.full_name?.trim() ?? "");
       setCollege(profileRes.data?.college ?? null);
-      setSolved(
-        (solvedRes.data ?? []).filter((r) => allProblemIds.has(r.problem_id)).length
-      );
+      setSolved((solvedRes.data ?? []).length);
+      setTotalProblems((topicsRes.data ?? []).reduce((sum, t) => sum + t.total, 0));
       setPendingRequests(requestRes.count ?? 0);
       setUnreadMessages(messageRes.count ?? 0);
 
-      const firstError =
+      const map: Record<string, string> = {};
+      (doneRes.data ?? []).forEach((t) => {
+        if (t.completed_at) map[t.id] = t.completed_at;
+      });
+      setCompletions(map);
+
+      let firstError =
         roadmapRes.error?.message ??
         solvedRes.error?.message ??
+        topicsRes.error?.message ??
         requestRes.error?.message ??
-        messageRes.error?.message;
+        messageRes.error?.message ??
+        doneRes.error?.message ??
+        null;
+
+      const loaded = await Promise.all(
+        ((roadmapRes.data ?? []) as RoadmapRow[]).map((r) => loadCard(supabase, r))
+      );
+      if (!active) return;
+
+      const built = loaded.map((l) => l.card);
+      loaded.forEach((l) => {
+        if (!firstError && l.error) firstError = l.error;
+      });
       if (firstError) setError("Some details could not be loaded: " + firstError);
 
-      const rm = roadmapRes.data as Roadmap | null;
-      if (rm) {
-        const { data: list, error: taskError } = await supabase
-          .from("roadmap_tasks")
-          .select("id, day_number, position, title, kind, done, completed_at")
-          .eq("roadmap_id", rm.id);
-
-        if (!active) return;
-
-        if (taskError) {
-          setError("Could not load your tasks: " + taskError.message);
-        } else {
-          const sorted = sortTasks((list ?? []) as Task[]);
-          const firstUndone = sorted.find((t) => !t.done);
-          setRoadmap(rm);
-          setTasks(sorted);
-          setDayShown(firstUndone ? firstUndone.day_number : null);
-        }
-      }
+      // Roadmaps in progress first
+      built.sort((a, b) => Number(isComplete(a)) - Number(isComplete(b)));
+      setCards(built);
       setLoading(false);
     }
 
@@ -217,13 +295,37 @@ export default function DashboardPage() {
     };
   }, [router]);
 
-  async function toggleTask(task: Task) {
+  async function toggleTask(cardId: string, task: Task) {
     const next = !task.done;
+    const delta = next ? 1 : -1;
     const stamp = next ? new Date().toISOString() : null;
     setError("");
-    setTasks((prev) =>
-      prev.map((t) => (t.id === task.id ? { ...t, done: next, completed_at: stamp } : t))
-    );
+
+    const apply = (done: boolean, change: number) => {
+      setCards((prev) =>
+        prev.map((c) =>
+          c.id === cardId
+            ? {
+                ...c,
+                done: c.done + change,
+                tasks: c.tasks.map((t) => (t.id === task.id ? { ...t, done } : t)),
+              }
+            : c
+        )
+      );
+    };
+
+    const setCompletion = (value: string | null) => {
+      setCompletions((prev) => {
+        const copy = { ...prev };
+        if (value) copy[task.id] = value;
+        else delete copy[task.id];
+        return copy;
+      });
+    };
+
+    apply(next, delta);
+    setCompletion(stamp);
 
     const supabase = createClient();
     const { error: updateError } = await supabase
@@ -233,26 +335,20 @@ export default function DashboardPage() {
 
     if (updateError) {
       // Put the checkbox back and tell the student
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.id === task.id ? { ...t, done: task.done, completed_at: task.completed_at } : t
-        )
-      );
+      apply(task.done, -delta);
+      setCompletion(task.done ? (completions[task.id] ?? new Date().toISOString()) : null);
       setError("Could not save that change: " + updateError.message);
     }
   }
 
   const stats = useMemo(() => {
-    const total = tasks.length;
-    const doneCount = tasks.filter((t) => t.done).length;
+    const total = cards.reduce((sum, c) => sum + c.total, 0);
+    const done = cards.reduce((sum, c) => sum + c.done, 0);
     return {
-      total,
-      doneCount,
-      percent: total ? Math.round((doneCount / total) * 100) : 0,
-      lastDay: total ? Math.max(...tasks.map((t) => t.day_number)) : 0,
-      streak: now ? computeStreak(tasks, now) : 0,
+      percent: total ? Math.round((done / total) * 100) : 0,
+      streak: now ? computeStreak(Object.values(completions), now) : 0,
     };
-  }, [tasks, now]);
+  }, [cards, completions, now]);
 
   if (loading) {
     return (
@@ -268,10 +364,9 @@ export default function DashboardPage() {
   const displayName = fullName || email.split("@")[0];
   const firstName = displayName.split(" ")[0];
 
-  const todayTasks = tasks.filter((t) => t.day_number === dayShown);
-  const dayComplete = todayTasks.length > 0 && todayTasks.every((t) => t.done);
-  const roadmapComplete = stats.total > 0 && stats.doneCount === stats.total;
-  const skillName = skills.find((s) => s.id === roadmap?.skill)?.name ?? "Your roadmap";
+  const active = cards.filter((c) => !isComplete(c));
+  const finished = cards.filter((c) => isComplete(c));
+  const totalHours = active.reduce((sum, c) => sum + c.hours_per_day, 0);
 
   const teammateNote =
     pendingRequests > 0
@@ -286,8 +381,8 @@ export default function DashboardPage() {
         {greeting(now)}, {firstName}
       </h1>
       <p className="mt-2 text-muted">
-        {roadmap
-          ? "Here is what is on your plate today."
+        {active.length > 0
+          ? `Here is what is on your plate today across ${active.length} roadmap${active.length > 1 ? "s" : ""}.`
           : "Set up a study plan in about a minute."}
       </p>
 
@@ -308,86 +403,120 @@ export default function DashboardPage() {
           hint={stats.streak === 0 ? "Finish a task to start one" : "Keep it going"}
         />
         <Stat
-          label="Roadmap"
-          value={roadmap ? `${stats.percent}%` : "Not started"}
-          hint={roadmap ? `${stats.doneCount} of ${stats.total} tasks` : undefined}
+          label="Roadmaps"
+          value={cards.length ? `${stats.percent}%` : "Not started"}
+          hint={cards.length ? `${active.length} in progress` : undefined}
         />
         <Stat label="Practice" value={`${solved} of ${totalProblems}`} hint="questions solved" />
       </dl>
 
-      {/* Today's plan */}
-      <section aria-label="Today's plan" className="glass mt-6 p-6 sm:p-8">
-        {!roadmap ? (
+      {totalHours > WARN_HOURS && (
+        <p className="mt-4 rounded-control border border-border bg-surface px-4 py-3 text-sm text-muted">
+          You are planning {totalHours} hours of study a day. Remember to take breaks.
+        </p>
+      )}
+
+      {/* Today's plan, one card for each roadmap in progress */}
+      {cards.length === 0 && (
+        <section aria-label="Today's plan" className="glass mt-6 p-6 sm:p-8">
           <div className="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
             <div>
               <h2 className="text-xl font-semibold">You do not have a plan yet</h2>
               <p className="mt-2 max-w-md text-muted">
-                Pick a goal and how much time you have, and we will build a day-by-day roadmap.
+                Pick a subject, your level and how much time you have, and we will build a
+                day-by-day roadmap.
               </p>
             </div>
             <Link href="/roadmap" className={primaryLink}>
               Build my roadmap
             </Link>
           </div>
-        ) : roadmapComplete ? (
-          <div>
-            <h2 className="text-xl font-semibold">Roadmap complete</h2>
-            <p className="mt-2 text-muted">
-              You finished every task in {skillName}. Start a new roadmap to keep going.
-            </p>
-            <Link href="/roadmap" className={`${primaryLink} mt-4`}>
-              Open roadmap
-            </Link>
-          </div>
-        ) : (
-          <>
+        </section>
+      )}
+
+      {cards.length > 0 && active.length === 0 && (
+        <section aria-label="Today's plan" className="glass mt-6 p-6 sm:p-8">
+          <h2 className="text-xl font-semibold">All roadmaps complete</h2>
+          <p className="mt-2 text-muted">
+            You finished everything you started. Add a new subject to keep going.
+          </p>
+          <Link href="/roadmap" className={`${primaryLink} mt-4`}>
+            Add a subject
+          </Link>
+        </section>
+      )}
+
+      {active.map((card) => {
+        const name = getDomain(card.skill)?.name ?? "Your roadmap";
+        const pct = card.total ? Math.round((card.done / card.total) * 100) : 0;
+        const dayComplete = card.tasks.length > 0 && card.tasks.every((t) => t.done);
+
+        return (
+          <section
+            key={card.id}
+            aria-label={`Today's plan: ${name}`}
+            className="glass mt-6 p-6 sm:p-8"
+          >
             <div className="flex flex-wrap items-baseline justify-between gap-3">
               <div>
-                <h2 className="text-xl font-semibold">Today: Day {dayShown}</h2>
+                <h2 className="text-xl font-semibold">{name}</h2>
                 <p className="mt-1 text-sm text-muted">
-                  {skillName}, day {dayShown} of {stats.lastDay}
+                  Day {card.day} of {card.lastDay}
                 </p>
               </div>
-              <Link
-                href="/roadmap"
-                className="text-sm font-medium text-accent hover:underline"
-              >
-                Open full roadmap
+              <Link href="/roadmap" className="text-sm font-medium text-accent hover:underline">
+                Open roadmap
               </Link>
             </div>
 
             <div
               role="progressbar"
-              aria-label="Overall roadmap progress"
+              aria-label={`${name} progress`}
               aria-valuemin={0}
               aria-valuemax={100}
-              aria-valuenow={stats.percent}
+              aria-valuenow={pct}
               className="mt-4 h-2 overflow-hidden rounded-full bg-surface-strong"
             >
               <div
                 className="h-full rounded-full bg-linear-to-r from-accent to-glow transition-[width] duration-500"
-                style={{ width: `${stats.percent}%` }}
+                style={{ width: `${pct}%` }}
               />
             </div>
+            <p className="mt-1.5 text-xs text-muted">
+              {card.done} of {card.total} tasks, {pct}%
+            </p>
 
-            <ul className="mt-5 space-y-2">
-              {todayTasks.map((task) => (
-                <li key={task.id}>
-                  <label className="flex cursor-pointer items-start gap-3 rounded-control p-2 transition-colors hover:bg-surface-strong">
+            <ul className="mt-4 space-y-2">
+              {card.tasks.map((task) => (
+                <li key={task.id} className="flex items-center gap-2">
+                  <label className="flex flex-1 cursor-pointer items-start gap-3 rounded-control p-2 transition-colors hover:bg-surface-strong">
                     <input
                       type="checkbox"
                       checked={task.done}
-                      onChange={() => toggleTask(task)}
+                      onChange={() => toggleTask(card.id, task)}
                       className="peer sr-only"
                     />
                     <CheckBox done={task.done} />
-                    <span className={`flex-1 ${task.done ? "text-muted line-through" : ""}`}>
-                      {task.title}
+                    <span className="flex-1">
+                      <span className={task.done ? "text-muted line-through" : ""}>
+                        {task.title}
+                      </span>
+                      {task.module && (
+                        <span className="mt-0.5 block text-xs text-muted">{task.module}</span>
+                      )}
                     </span>
                     <span className="rounded-full border border-border bg-surface-strong px-2.5 py-0.5 text-xs capitalize text-muted">
                       {task.kind}
                     </span>
                   </label>
+                  {task.link && (
+                    <Link
+                      href={task.link}
+                      className="shrink-0 rounded-control border border-border bg-surface px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-surface-strong"
+                    >
+                      Open questions
+                    </Link>
+                  )}
                 </li>
               ))}
             </ul>
@@ -397,12 +526,22 @@ export default function DashboardPage() {
                 role="status"
                 className="mt-4 rounded-control border border-success/40 bg-success/10 px-4 py-3 text-sm text-success"
               >
-                All done for today. Nice work! Tomorrow&apos;s tasks will be waiting here.
+                All done for today in {name}. Nice work! The next day will be waiting here.
               </p>
             )}
-          </>
-        )}
-      </section>
+          </section>
+        );
+      })}
+
+      {finished.length > 0 && active.length > 0 && (
+        <p className="mt-4 text-sm text-muted">
+          Completed:{" "}
+          {finished.map((c) => getDomain(c.skill)?.name ?? "Roadmap").join(", ")}.{" "}
+          <Link href="/roadmap" className="font-medium text-accent hover:underline">
+            Add a subject
+          </Link>
+        </p>
+      )}
 
       {!college && (
         <section className="mt-4 flex flex-col items-start justify-between gap-3 rounded-panel border border-border bg-surface p-5 sm:flex-row sm:items-center">
