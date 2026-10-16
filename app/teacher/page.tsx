@@ -5,7 +5,12 @@ import { useRouter } from "next/navigation";
 import { createClient } from "../../lib/supabase/client";
 import AppShell from "../components/AppShell";
 
-type Msg = { role: "user" | "assistant"; content: string; hint_level?: number | null };
+type Msg = {
+  id?: string | null;
+  role: "user" | "assistant";
+  content: string;
+  hint_level?: number | null;
+};
 type Thread = { id: string; title: string; updated_at: string };
 type Mode = "beginner" | "exam" | "interview";
 type Lang = "english" | "hinglish";
@@ -61,6 +66,10 @@ export default function TeacherPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [usage, setUsage] = useState<{ used: number; limit: number } | null>(null);
+
+  // Thumbs: message id -> 1 (up) or -1 (down)
+  const [votes, setVotes] = useState<Record<string, number>>({});
+  const [votingId, setVotingId] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -135,6 +144,52 @@ export default function TeacherPage() {
     setSavingLang(false);
   }
 
+  // Thumbs up (1) or down (-1). Same button again removes the vote.
+  async function vote(messageId: string, rating: 1 | -1) {
+    if (!userId || votingId) return;
+
+    const previous = votes[messageId] ?? 0;
+    const next = previous === rating ? 0 : rating;
+
+    setVotingId(messageId);
+    setError("");
+    setVotes((v) => {
+      const copy = { ...v };
+      if (next === 0) delete copy[messageId];
+      else copy[messageId] = next;
+      return copy;
+    });
+
+    const supabase = createClient();
+
+    // Remove any old vote of this student on this reply, then add the new one
+    const { error: delError } = await supabase
+      .from("ai_feedback")
+      .delete()
+      .eq("message_id", messageId)
+      .eq("user_id", userId);
+
+    let failed = !!delError;
+
+    if (!failed && next !== 0) {
+      const { error: insError } = await supabase
+        .from("ai_feedback")
+        .insert({ message_id: messageId, user_id: userId, rating: next });
+      failed = !!insError;
+    }
+
+    if (failed) {
+      setVotes((v) => {
+        const copy = { ...v };
+        if (previous === 0) delete copy[messageId];
+        else copy[messageId] = previous;
+        return copy;
+      });
+      setError("Could not save your feedback. Please try again.");
+    }
+    setVotingId(null);
+  }
+
   async function openThread(id: string) {
     if (sending || openingChat || id === threadId) {
       setShowList(false);
@@ -146,7 +201,7 @@ export default function TeacherPage() {
     const supabase = createClient();
     const { data, error: loadError } = await supabase
       .from("chat_messages")
-      .select("role, content, hint_level")
+      .select("id, role, content, hint_level")
       .eq("thread_id", id)
       .order("created_at", { ascending: true });
 
@@ -164,6 +219,22 @@ export default function TeacherPage() {
         .eq("id", id)
         .maybeSingle();
       if (isMode(thread?.mode)) setMode(thread.mode);
+
+      // Load this student's earlier votes for these replies
+      const replyIds = rows
+        .filter((r) => r.role === "assistant" && r.id)
+        .map((r) => r.id as string);
+      const loaded: Record<string, number> = {};
+      if (replyIds.length > 0) {
+        const { data: fb } = await supabase
+          .from("ai_feedback")
+          .select("message_id, rating")
+          .in("message_id", replyIds);
+        (fb ?? []).forEach((f) => {
+          if (f.rating === 1 || f.rating === -1) loaded[f.message_id as string] = f.rating;
+        });
+      }
+      setVotes(loaded);
 
       setThreadId(id);
       setShowList(false);
@@ -197,7 +268,12 @@ export default function TeacherPage() {
         setHintUsed(Number(data.threadHintLevel) || 0);
         setMessages((m) => [
           ...m,
-          { role: "assistant", content: data.reply, hint_level: Number(data.hintLevel) || 0 },
+          {
+            id: data.messageId ?? null,
+            role: "assistant",
+            content: data.reply,
+            hint_level: Number(data.hintLevel) || 0,
+          },
         ]);
         setUsage({ used: data.usedToday, limit: data.dailyLimit });
         fetchThreads();
@@ -231,6 +307,7 @@ export default function TeacherPage() {
     setMessages([]);
     setThreadId(null);
     setHintUsed(0);
+    setVotes({});
     setError("");
     setShowList(false);
   }
@@ -389,7 +466,7 @@ export default function TeacherPage() {
             {!openingChat &&
               messages.map((m, i) => (
                 <div
-                  key={i}
+                  key={m.id ?? i}
                   className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
                 >
                   <div className="max-w-[85%]">
@@ -402,10 +479,47 @@ export default function TeacherPage() {
                     >
                       {m.content}
                     </div>
-                    {m.role === "assistant" && (m.hint_level ?? 0) > 0 && (
-                      <p className="mt-1 px-1 text-xs text-muted">
-                        Hints used: {m.hint_level} of {MAX_HINT}
-                      </p>
+
+                    {m.role === "assistant" && (
+                      <div className="mt-1 flex flex-wrap items-center gap-2 px-1">
+                        {(m.hint_level ?? 0) > 0 && (
+                          <span className="text-xs text-muted">
+                            Hints used: {m.hint_level} of {MAX_HINT}
+                          </span>
+                        )}
+                        {m.id && (
+                          <span className="ml-auto flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => vote(m.id as string, 1)}
+                              disabled={votingId !== null}
+                              aria-label="This answer was helpful"
+                              aria-pressed={votes[m.id] === 1}
+                              className={`rounded-control border px-2 py-0.5 text-sm transition-colors disabled:opacity-60 ${
+                                votes[m.id] === 1
+                                  ? "border-accent bg-accent/15"
+                                  : "border-border bg-surface opacity-70 hover:opacity-100"
+                              }`}
+                            >
+                              👍
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => vote(m.id as string, -1)}
+                              disabled={votingId !== null}
+                              aria-label="This answer was not helpful"
+                              aria-pressed={votes[m.id] === -1}
+                              className={`rounded-control border px-2 py-0.5 text-sm transition-colors disabled:opacity-60 ${
+                                votes[m.id] === -1
+                                  ? "border-accent bg-accent/15"
+                                  : "border-border bg-surface opacity-70 hover:opacity-100"
+                              }`}
+                            >
+                              👎
+                            </button>
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
