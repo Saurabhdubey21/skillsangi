@@ -8,6 +8,7 @@ import AppShell from "../components/AppShell";
 type Msg = { role: "user" | "assistant"; content: string; hint_level?: number | null };
 type Thread = { id: string; title: string; updated_at: string };
 type Mode = "beginner" | "exam" | "interview";
+type Lang = "english" | "hinglish";
 
 const MAX_CHARS = 2000;
 const MAX_HINT = 4;
@@ -19,8 +20,16 @@ const MODE_OPTIONS: { id: Mode; label: string; note: string }[] = [
   { id: "interview", label: "Interview", note: "Follow-up questions" },
 ];
 
+const LANG_OPTIONS: { id: Lang; label: string }[] = [
+  { id: "english", label: "English" },
+  { id: "hinglish", label: "Hinglish" },
+];
+
 function isMode(v: unknown): v is Mode {
   return v === "beginner" || v === "exam" || v === "interview";
+}
+function isLang(v: unknown): v is Lang {
+  return v === "english" || v === "hinglish";
 }
 
 // Button label for the NEXT hint level
@@ -35,6 +44,7 @@ export default function TeacherPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState("");
+  const [userId, setUserId] = useState<string | null>(null);
 
   const [threads, setThreads] = useState<Thread[]>([]);
   const [listError, setListError] = useState("");
@@ -46,6 +56,8 @@ export default function TeacherPage() {
   const [threadId, setThreadId] = useState<string | null>(null);
   const [hintUsed, setHintUsed] = useState(0); // highest hint level used in this chat
   const [mode, setMode] = useState<Mode>("beginner");
+  const [language, setLanguage] = useState<Lang>("english");
+  const [savingLang, setSavingLang] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [usage, setUsage] = useState<{ used: number; limit: number } | null>(null);
@@ -80,14 +92,16 @@ export default function TeacherPage() {
         router.replace("/login");
         return;
       }
+      setUserId(user.id);
 
       const { data } = await supabase
         .from("profiles")
-        .select("full_name")
+        .select("full_name, ai_language")
         .eq("id", user.id)
         .maybeSingle();
 
       setUserName(data?.full_name?.trim() || (user.email ?? "").split("@")[0]);
+      if (isLang(data?.ai_language)) setLanguage(data.ai_language);
       await fetchThreads();
       setLoading(false);
     }
@@ -98,6 +112,28 @@ export default function TeacherPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, sending]);
+
+  // Saves the language on the student's own profile. The server reads it from there.
+  async function changeLanguage(next: Lang) {
+    if (next === language || savingLang || sending || !userId) return;
+
+    const previous = language;
+    setLanguage(next);
+    setSavingLang(true);
+    setError("");
+
+    const supabase = createClient();
+    const { error: saveError } = await supabase
+      .from("profiles")
+      .update({ ai_language: next })
+      .eq("id", userId);
+
+    if (saveError) {
+      setLanguage(previous);
+      setError("Could not save your language. Please try again.");
+    }
+    setSavingLang(false);
+  }
 
   async function openThread(id: string) {
     if (sending || openingChat || id === threadId) {
@@ -286,29 +322,53 @@ export default function TeacherPage() {
 
         {/* Chat */}
         <section className="glass flex min-w-0 flex-col rounded-panel p-4 sm:p-6">
-          {/* Mode switch */}
-          <div role="group" aria-label="Teaching mode" className="mb-4 flex flex-wrap gap-2">
-            {MODE_OPTIONS.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => setMode(m.id)}
-                disabled={sending || openingChat}
-                aria-pressed={mode === m.id}
-                title={m.note}
-                className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors disabled:opacity-60 ${
-                  mode === m.id
-                    ? "border-accent bg-accent text-on-accent"
-                    : "border-border bg-surface text-muted hover:text-foreground"
-                }`}
-              >
-                {m.label}
-              </button>
-            ))}
-            <span className="self-center text-xs text-muted">
-              {MODE_OPTIONS.find((m) => m.id === mode)?.note}
-            </span>
+          {/* Mode and language switches */}
+          <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-3">
+            <div role="group" aria-label="Teaching mode" className="flex flex-wrap gap-2">
+              {MODE_OPTIONS.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setMode(m.id)}
+                  disabled={sending || openingChat}
+                  aria-pressed={mode === m.id}
+                  title={m.note}
+                  className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors disabled:opacity-60 ${
+                    mode === m.id
+                      ? "border-accent bg-accent text-on-accent"
+                      : "border-border bg-surface text-muted hover:text-foreground"
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+
+            <div role="group" aria-label="Reply language" className="flex flex-wrap gap-2">
+              {LANG_OPTIONS.map((l) => (
+                <button
+                  key={l.id}
+                  type="button"
+                  onClick={() => changeLanguage(l.id)}
+                  disabled={sending || openingChat || savingLang}
+                  aria-pressed={language === l.id}
+                  className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors disabled:opacity-60 ${
+                    language === l.id
+                      ? "border-accent bg-accent text-on-accent"
+                      : "border-border bg-surface text-muted hover:text-foreground"
+                  }`}
+                >
+                  {l.label}
+                </button>
+              ))}
+            </div>
           </div>
+          <p className="mb-4 text-xs text-muted">
+            {MODE_OPTIONS.find((m) => m.id === mode)?.note}.{" "}
+            {language === "hinglish"
+              ? "Replies in simple Hinglish (English words, Hindi connectors)."
+              : "Replies in simple English."}
+          </p>
 
           <div
             className="max-h-[55vh] min-h-[200px] space-y-4 overflow-y-auto pr-1"

@@ -55,8 +55,6 @@ export async function POST(request: Request) {
   const requestedMode: TeacherMode | null = isMode(body.mode) ? body.mode : null;
   let mode: TeacherMode = requestedMode ?? "beginner";
   let savedMode: TeacherMode | null = null; // the mode stored on the chat
-  // Language is not stored on the thread yet; it comes from the request.
-  const language: TeacherLanguage = isLanguage(body.language) ? body.language : "english";
   // Highest hint level already used in this chat (0 for a new chat)
   let currentHint = 0;
 
@@ -73,6 +71,16 @@ export async function POST(request: Request) {
     }
     currentHint = Number(thread.hint_level) || 0;
   }
+
+  // Language: always read from the student's own profile on the server.
+  // If it cannot be read, use English so the chat still works.
+  let language: TeacherLanguage = "english";
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("ai_language")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (isLanguage(profile?.ai_language)) language = profile.ai_language;
 
   // The hint ladder: the student can only go one step up at a time.
   // 0 means a normal message (no hint). Level 4 is only reachable after level 3.
@@ -188,5 +196,6 @@ export async function POST(request: Request) {
     hintLevel,
     threadHintLevel,
     mode,
+    language,
   });
 }
