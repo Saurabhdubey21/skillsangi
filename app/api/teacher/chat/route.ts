@@ -162,6 +162,7 @@ export async function POST(request: Request) {
         content: result.text,
         hint_level: hintLevel,
         provider: result.provider,
+        model: result.model,
         input_tokens: result.inputTokens,
         output_tokens: result.outputTokens,
         created_at: new Date(now + 1).toISOString(),

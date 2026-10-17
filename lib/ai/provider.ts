@@ -6,6 +6,7 @@ export type ChatTurn = { role: "user" | "assistant"; content: string };
 export type AiResult = {
   text: string;
   provider: "gemini" | "groq";
+  model: string | null;
   inputTokens: number | null;
   outputTokens: number | null;
 };
@@ -49,6 +50,7 @@ async function callGemini(system: string, messages: ChatTurn[]): Promise<AiResul
   return {
     text,
     provider: "gemini",
+    model: typeof data.modelVersion === "string" && data.modelVersion ? data.modelVersion : model,
     inputTokens: data.usageMetadata?.promptTokenCount ?? null,
     outputTokens: data.usageMetadata?.candidatesTokenCount ?? null,
   };
@@ -82,6 +84,7 @@ async function callGroq(system: string, messages: ChatTurn[]): Promise<AiResult>
   return {
     text,
     provider: "groq",
+    model: typeof data.model === "string" && data.model ? data.model : model,
     inputTokens: data.usage?.prompt_tokens ?? null,
     outputTokens: data.usage?.completion_tokens ?? null,
   };
