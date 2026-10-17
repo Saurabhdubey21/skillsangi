@@ -1,7 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import ReactMarkdown from "react-markdown";
+import type { Components } from "react-markdown";
 import { createClient } from "../../lib/supabase/client";
 import AppShell from "../components/AppShell";
 
@@ -18,6 +21,7 @@ type Lang = "english" | "hinglish";
 const MAX_CHARS = 2000;
 const MAX_HINT = 4;
 const DEFAULT_HINT_TEXT = "I am stuck. Please give me a hint.";
+const EXPORT_PAGE = 1000; // rows read per request when exporting
 
 const MODE_OPTIONS: { id: Mode; label: string; note: string }[] = [
   { id: "beginner", label: "Beginner", note: "Simple words and examples" },
@@ -45,6 +49,56 @@ const HINT_BUTTON: Record<number, string> = {
   4: "Show the full solution",
 };
 
+// How the AI's markdown looks. Raw HTML is never rendered. Links are shown as plain
+// text (the AI must never invent links) and images are not loaded.
+const markdownComponents: Components = {
+  p: ({ children }) => <p className="my-2 first:mt-0 last:mb-0">{children}</p>,
+  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+  em: ({ children }) => <em className="italic">{children}</em>,
+  ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5">{children}</ul>,
+  ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5">{children}</ol>,
+  li: ({ children }) => <li>{children}</li>,
+  h1: ({ children }) => <p className="my-2 text-base font-semibold">{children}</p>,
+  h2: ({ children }) => <p className="my-2 text-base font-semibold">{children}</p>,
+  h3: ({ children }) => <p className="my-2 font-semibold">{children}</p>,
+  blockquote: ({ children }) => (
+    <blockquote className="my-2 border-l-2 border-border pl-3 text-muted">{children}</blockquote>
+  ),
+  code: ({ children }) => (
+    <code className="rounded bg-surface-strong px-1 py-0.5 font-mono text-[0.85em]">
+      {children}
+    </code>
+  ),
+  pre: ({ children }) => (
+    <pre className="my-2 overflow-x-auto rounded-control border border-border bg-surface-strong p-3 text-xs leading-relaxed [&>code]:rounded-none [&>code]:bg-transparent [&>code]:p-0 [&>code]:text-[1em]">
+      {children}
+    </pre>
+  ),
+  a: ({ children }) => <span>{children}</span>,
+  img: () => null,
+};
+
+// Reads every row of one table that belongs to this student, a page at a time
+async function fetchAllRows(table: string, columns: string, userId: string) {
+  const supabase = createClient();
+  const rows: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += EXPORT_PAGE) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(columns)
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + EXPORT_PAGE - 1);
+
+    if (error) return { rows, failed: true };
+    const batch = (data ?? []) as unknown as Record<string, unknown>[];
+    rows.push(...batch);
+    if (batch.length < EXPORT_PAGE) break;
+  }
+  return { rows, failed: false };
+}
+
 export default function TeacherPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -55,6 +109,8 @@ export default function TeacherPage() {
   const [listError, setListError] = useState("");
   const [showList, setShowList] = useState(false);
   const [openingChat, setOpeningChat] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -190,8 +246,90 @@ export default function TeacherPage() {
     setVotingId(null);
   }
 
+  // Downloads the student's own AI Teacher data as one JSON file.
+  // No name, email or phone is included. Runs in the browser, so nothing is sent anywhere.
+  async function exportData() {
+    if (!userId || exporting || deleting || sending || openingChat) return;
+
+    setExporting(true);
+    setError("");
+
+    const [threadRes, messageRes, feedbackRes] = await Promise.all([
+      fetchAllRows("chat_threads", "id, title, mode, hint_level, created_at, updated_at", userId),
+      fetchAllRows(
+        "chat_messages",
+        "id, thread_id, role, content, hint_level, provider, model, input_tokens, output_tokens, created_at",
+        userId
+      ),
+      fetchAllRows("ai_feedback", "id, message_id, rating, created_at", userId),
+    ]);
+
+    if (threadRes.failed || messageRes.failed || feedbackRes.failed) {
+      setError("Could not export your data. Please try again.");
+      setExporting(false);
+      return;
+    }
+
+    const file = {
+      exported_at: new Date().toISOString(),
+      note: "Your SkillSangi AI Teacher data. Chats, messages and feedback votes only.",
+      chats: threadRes.rows,
+      messages: messageRes.rows,
+      feedback: feedbackRes.rows,
+    };
+
+    const blob = new Blob([JSON.stringify(file, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `skillsangi-ai-data-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+
+    setExporting(false);
+  }
+
+  // Deletes ALL of this student's chats. Messages and votes go with them (cascade).
+  // The daily message counter is NOT touched, so this cannot be used to reset the limit.
+  async function deleteHistory() {
+    if (!userId || deleting || exporting || sending || openingChat) return;
+
+    const ok = window.confirm(
+      "Delete ALL your AI Teacher chats, messages and feedback? This cannot be undone. Your daily message count will not reset."
+    );
+    if (!ok) return;
+
+    setDeleting(true);
+    setError("");
+
+    const supabase = createClient();
+    const { data: removed, error: delError } = await supabase
+      .from("chat_threads")
+      .delete()
+      .eq("user_id", userId)
+      .select("id");
+
+    if (delError) {
+      setError("Could not delete your history. Please try again.");
+    } else if (threads.length > 0 && (removed ?? []).length === 0) {
+      // Nothing was deleted even though chats exist, so do not pretend it worked
+      setError("Nothing was deleted. Please try again, or contact support if it keeps happening.");
+    } else {
+      setThreads([]);
+      setMessages([]);
+      setThreadId(null);
+      setHintUsed(0);
+      setVotes({});
+      setShowList(false);
+      await fetchThreads();
+    }
+    setDeleting(false);
+  }
+
   async function openThread(id: string) {
-    if (sending || openingChat || id === threadId) {
+    if (sending || openingChat || deleting || id === threadId) {
       setShowList(false);
       return;
     }
@@ -244,7 +382,7 @@ export default function TeacherPage() {
 
   // Sends one message. hintLevel 0 = a normal message, 1 to 4 = ask for a hint.
   async function send(text: string, hintLevel: number, restoreOnFail: boolean) {
-    if (!text || sending || openingChat) return;
+    if (!text || sending || openingChat || deleting) return;
 
     setError("");
     setMessages((m) => [...m, { role: "user", content: text }]);
@@ -314,7 +452,12 @@ export default function TeacherPage() {
 
   const nextHint = Math.min(hintUsed + 1, MAX_HINT);
   const hintsDone = hintUsed >= MAX_HINT;
-  const canHint = !sending && !openingChat && !hintsDone && (messages.length > 0 || input.trim().length > 0);
+  const canHint =
+    !sending &&
+    !openingChat &&
+    !deleting &&
+    !hintsDone &&
+    (messages.length > 0 || input.trim().length > 0);
 
   if (loading) {
     return (
@@ -347,7 +490,7 @@ export default function TeacherPage() {
           <button
             type="button"
             onClick={handleNewChat}
-            disabled={sending || (messages.length === 0 && !threadId)}
+            disabled={sending || deleting || (messages.length === 0 && !threadId)}
             className="rounded-control border border-border bg-surface px-4 py-2 text-sm font-medium text-muted transition-colors hover:text-foreground disabled:opacity-50"
           >
             New chat
@@ -394,6 +537,27 @@ export default function TeacherPage() {
                 </li>
               ))}
             </ul>
+
+            {threads.length > 0 && (
+              <div className="mt-3 flex flex-col items-start gap-2 border-t border-border px-2 pt-3">
+                <button
+                  type="button"
+                  onClick={exportData}
+                  disabled={exporting || deleting || sending || openingChat}
+                  className="text-xs font-medium text-accent hover:underline disabled:opacity-60"
+                >
+                  {exporting ? "Preparing file..." : "Export my data"}
+                </button>
+                <button
+                  type="button"
+                  onClick={deleteHistory}
+                  disabled={deleting || exporting || sending || openingChat}
+                  className="text-xs font-medium text-danger hover:underline disabled:opacity-60"
+                >
+                  {deleting ? "Deleting..." : "Delete my AI history"}
+                </button>
+              </div>
+            )}
           </div>
         </aside>
 
@@ -469,16 +633,18 @@ export default function TeacherPage() {
                   key={m.id ?? i}
                   className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
                 >
-                  <div className="max-w-[85%]">
-                    <div
-                      className={`whitespace-pre-wrap rounded-control px-4 py-3 text-sm leading-relaxed ${
-                        m.role === "user"
-                          ? "bg-accent text-on-accent"
-                          : "border border-border bg-surface"
-                      }`}
-                    >
-                      {m.content}
-                    </div>
+                  <div className="max-w-[85%] min-w-0">
+                    {m.role === "user" ? (
+                      <div className="whitespace-pre-wrap break-words rounded-control bg-accent px-4 py-3 text-sm leading-relaxed text-on-accent">
+                        {m.content}
+                      </div>
+                    ) : (
+                      <div className="break-words rounded-control border border-border bg-surface px-4 py-3 text-sm leading-relaxed">
+                        <ReactMarkdown components={markdownComponents}>
+                          {m.content}
+                        </ReactMarkdown>
+                      </div>
+                    )}
 
                     {m.role === "assistant" && (
                       <div className="mt-1 flex flex-wrap items-center gap-2 px-1">
@@ -576,7 +742,7 @@ export default function TeacherPage() {
             <button
               type="button"
               onClick={handleSend}
-              disabled={sending || openingChat || !input.trim()}
+              disabled={sending || openingChat || deleting || !input.trim()}
               className="rounded-control bg-accent px-5 py-3 font-medium text-on-accent transition hover:bg-accent-hover disabled:opacity-60"
             >
               Send
@@ -584,7 +750,12 @@ export default function TeacherPage() {
           </div>
 
           <div className="mt-3 flex flex-wrap justify-between gap-2 text-xs text-muted">
-            <span>AI can be wrong. Please check important answers.</span>
+            <span>
+              AI can be wrong. Please check important answers.{" "}
+              <Link href="/privacy" className="font-medium text-accent hover:underline">
+                Privacy
+              </Link>
+            </span>
             <span>
               {input.length}/{MAX_CHARS}
               {usage ? ` · Messages today: ${usage.used}/${usage.limit}` : ""}
