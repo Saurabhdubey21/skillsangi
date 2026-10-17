@@ -20,6 +20,7 @@ type Lang = "english" | "hinglish";
 const MAX_CHARS = 2000;
 const MAX_HINT = 4;
 const DEFAULT_HINT_TEXT = "I am stuck. Please give me a hint.";
+const EXPORT_PAGE = 1000; // rows read per request when exporting
 
 const MODE_OPTIONS: { id: Mode; label: string; note: string }[] = [
   { id: "beginner", label: "Beginner", note: "Simple words and examples" },
@@ -76,6 +77,27 @@ const markdownComponents: Components = {
   img: () => null,
 };
 
+// Reads every row of one table that belongs to this student, a page at a time
+async function fetchAllRows(table: string, columns: string, userId: string) {
+  const supabase = createClient();
+  const rows: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += EXPORT_PAGE) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(columns)
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + EXPORT_PAGE - 1);
+
+    if (error) return { rows, failed: true };
+    const batch = (data ?? []) as unknown as Record<string, unknown>[];
+    rows.push(...batch);
+    if (batch.length < EXPORT_PAGE) break;
+  }
+  return { rows, failed: false };
+}
+
 export default function TeacherPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -87,6 +109,7 @@ export default function TeacherPage() {
   const [showList, setShowList] = useState(false);
   const [openingChat, setOpeningChat] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -222,10 +245,55 @@ export default function TeacherPage() {
     setVotingId(null);
   }
 
+  // Downloads the student's own AI Teacher data as one JSON file.
+  // No name, email or phone is included. Runs in the browser, so nothing is sent anywhere.
+  async function exportData() {
+    if (!userId || exporting || deleting || sending || openingChat) return;
+
+    setExporting(true);
+    setError("");
+
+    const [threadRes, messageRes, feedbackRes] = await Promise.all([
+      fetchAllRows("chat_threads", "id, title, mode, hint_level, created_at, updated_at", userId),
+      fetchAllRows(
+        "chat_messages",
+        "id, thread_id, role, content, hint_level, provider, model, input_tokens, output_tokens, created_at",
+        userId
+      ),
+      fetchAllRows("ai_feedback", "id, message_id, rating, created_at", userId),
+    ]);
+
+    if (threadRes.failed || messageRes.failed || feedbackRes.failed) {
+      setError("Could not export your data. Please try again.");
+      setExporting(false);
+      return;
+    }
+
+    const file = {
+      exported_at: new Date().toISOString(),
+      note: "Your SkillSangi AI Teacher data. Chats, messages and feedback votes only.",
+      chats: threadRes.rows,
+      messages: messageRes.rows,
+      feedback: feedbackRes.rows,
+    };
+
+    const blob = new Blob([JSON.stringify(file, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `skillsangi-ai-data-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+
+    setExporting(false);
+  }
+
   // Deletes ALL of this student's chats. Messages and votes go with them (cascade).
   // The daily message counter is NOT touched, so this cannot be used to reset the limit.
   async function deleteHistory() {
-    if (!userId || deleting || sending || openingChat) return;
+    if (!userId || deleting || exporting || sending || openingChat) return;
 
     const ok = window.confirm(
       "Delete ALL your AI Teacher chats, messages and feedback? This cannot be undone. Your daily message count will not reset."
@@ -470,11 +538,19 @@ export default function TeacherPage() {
             </ul>
 
             {threads.length > 0 && (
-              <div className="mt-3 border-t border-border px-2 pt-3">
+              <div className="mt-3 flex flex-col items-start gap-2 border-t border-border px-2 pt-3">
+                <button
+                  type="button"
+                  onClick={exportData}
+                  disabled={exporting || deleting || sending || openingChat}
+                  className="text-xs font-medium text-accent hover:underline disabled:opacity-60"
+                >
+                  {exporting ? "Preparing file..." : "Export my data"}
+                </button>
                 <button
                   type="button"
                   onClick={deleteHistory}
-                  disabled={deleting || sending || openingChat}
+                  disabled={deleting || exporting || sending || openingChat}
                   className="text-xs font-medium text-danger hover:underline disabled:opacity-60"
                 >
                   {deleting ? "Deleting..." : "Delete my AI history"}
