@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import ReactMarkdown from "react-markdown";
+import type { Components } from "react-markdown";
 import { createClient } from "../../lib/supabase/client";
 import AppShell from "../components/AppShell";
 
@@ -43,6 +45,35 @@ const HINT_BUTTON: Record<number, string> = {
   2: "Give me a stronger hint",
   3: "Explain the approach in words",
   4: "Show the full solution",
+};
+
+// How the AI's markdown looks. Raw HTML is never rendered. Links are shown as plain
+// text (the AI must never invent links) and images are not loaded.
+const markdownComponents: Components = {
+  p: ({ children }) => <p className="my-2 first:mt-0 last:mb-0">{children}</p>,
+  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+  em: ({ children }) => <em className="italic">{children}</em>,
+  ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5">{children}</ul>,
+  ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5">{children}</ol>,
+  li: ({ children }) => <li>{children}</li>,
+  h1: ({ children }) => <p className="my-2 text-base font-semibold">{children}</p>,
+  h2: ({ children }) => <p className="my-2 text-base font-semibold">{children}</p>,
+  h3: ({ children }) => <p className="my-2 font-semibold">{children}</p>,
+  blockquote: ({ children }) => (
+    <blockquote className="my-2 border-l-2 border-border pl-3 text-muted">{children}</blockquote>
+  ),
+  code: ({ children }) => (
+    <code className="rounded bg-surface-strong px-1 py-0.5 font-mono text-[0.85em]">
+      {children}
+    </code>
+  ),
+  pre: ({ children }) => (
+    <pre className="my-2 overflow-x-auto rounded-control border border-border bg-surface-strong p-3 text-xs leading-relaxed [&>code]:rounded-none [&>code]:bg-transparent [&>code]:p-0 [&>code]:text-[1em]">
+      {children}
+    </pre>
+  ),
+  a: ({ children }) => <span>{children}</span>,
+  img: () => null,
 };
 
 export default function TeacherPage() {
@@ -469,16 +500,18 @@ export default function TeacherPage() {
                   key={m.id ?? i}
                   className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
                 >
-                  <div className="max-w-[85%]">
-                    <div
-                      className={`whitespace-pre-wrap rounded-control px-4 py-3 text-sm leading-relaxed ${
-                        m.role === "user"
-                          ? "bg-accent text-on-accent"
-                          : "border border-border bg-surface"
-                      }`}
-                    >
-                      {m.content}
-                    </div>
+                  <div className="max-w-[85%] min-w-0">
+                    {m.role === "user" ? (
+                      <div className="whitespace-pre-wrap break-words rounded-control bg-accent px-4 py-3 text-sm leading-relaxed text-on-accent">
+                        {m.content}
+                      </div>
+                    ) : (
+                      <div className="break-words rounded-control border border-border bg-surface px-4 py-3 text-sm leading-relaxed">
+                        <ReactMarkdown components={markdownComponents}>
+                          {m.content}
+                        </ReactMarkdown>
+                      </div>
+                    )}
 
                     {m.role === "assistant" && (
                       <div className="mt-1 flex flex-wrap items-center gap-2 px-1">
