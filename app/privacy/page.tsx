@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 // Put the email address students can write to here before you go live.
-const CONTACT_EMAIL = "";
+const CONTACT_EMAIL = "saurabhkumardubey21@gmail.com";
 
 const LAST_UPDATED = "17 October 2026";
 
