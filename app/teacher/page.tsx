@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
@@ -749,7 +750,12 @@ export default function TeacherPage() {
           </div>
 
           <div className="mt-3 flex flex-wrap justify-between gap-2 text-xs text-muted">
-            <span>AI can be wrong. Please check important answers.</span>
+            <span>
+              AI can be wrong. Please check important answers.{" "}
+              <Link href="/privacy" className="font-medium text-accent hover:underline">
+                Privacy
+              </Link>
+            </span>
             <span>
               {input.length}/{MAX_CHARS}
               {usage ? ` · Messages today: ${usage.used}/${usage.limit}` : ""}
