@@ -50,6 +50,8 @@ export async function POST(request: Request) {
 
   // 3. If continuing a chat, make sure it is this student's thread
   let threadId = typeof body.threadId === "string" ? body.threadId : null;
+  // True only when THIS request created the chat (so we may remove it if it stays empty)
+  let createdNewThread = false;
   // Mode: a valid mode from the page wins. Otherwise use the chat's saved mode.
   // Anything that is not in our fixed list is ignored.
   const requestedMode: TeacherMode | null = isMode(body.mode) ? body.mode : null;
@@ -114,7 +116,22 @@ export async function POST(request: Request) {
       return fail("Something went wrong. Please try again.", 500);
     }
     threadId = created.id;
+    createdNewThread = true;
     savedMode = mode;
+  }
+
+  // If this request made the chat and it ends up with no messages, remove it.
+  // We ask for the deleted row back, because a blocked delete fails silently.
+  async function removeEmptyThread() {
+    if (!createdNewThread || !threadId) return;
+    const { data, error } = await supabase
+      .from("chat_threads")
+      .delete()
+      .eq("id", threadId)
+      .select("id");
+    if (error || !data || data.length === 0) {
+      console.error("[teacher] could not remove empty chat:", error?.message ?? "no row deleted");
+    }
   }
 
   // 6. Last messages as context (9 old + the new one = 10)
@@ -139,6 +156,7 @@ export async function POST(request: Request) {
       messages
     );
   } catch {
+    await removeEmptyThread();
     return fail("The AI is busy right now. Please try again in a minute.", 503);
   }
 
@@ -171,6 +189,7 @@ export async function POST(request: Request) {
     .select("id, role");
   if (saveError) {
     console.error("[teacher] save error:", saveError.message);
+    await removeEmptyThread();
     return fail("Something went wrong. Please try again.", 500);
   }
 
