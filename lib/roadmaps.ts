@@ -152,6 +152,55 @@ export function basicsTopicCount(language: Domain) {
 
 // ---------- Turning topics into tasks ----------
 
+// The DSA curriculum files use short, old topic names in `practice`. This maps
+// them to the topic ids that are live in the question bank. A name that is not
+// listed here is used as it is.
+const practiceTopic: Record<string, string> = {
+  basics: "language-basics",
+  patterns: "logic-patterns",
+  recursion: "recursion",
+  stl: "stl",
+  arrays: "arrays",
+  strings: "strings-windows",
+  "binary-search": "binary-search",
+  "linked-lists": "linkedlist-stack-queue",
+  stacks: "linkedlist-stack-queue",
+  queues: "linkedlist-stack-queue",
+  hashmaps: "hashing",
+  trees: "trees-heaps-greedy",
+  graphs: "graphs",
+  dp: "dynamic-programming",
+};
+
+// Programming-language modules have no `practice` value, so they are matched by
+// module id instead (module id -> live topic id). The DSA basics topics work in
+// any language, and students can write code for them in the code editor.
+// Modules of other subjects (SQL, web, cloud, AI/ML, system design, OOPs) are
+// left out on purpose: they cannot be coded in the editor yet. To add one later,
+// add a line here, for example "sql-basics": "sql-select-and-where-basics".
+const practiceByModule: Record<string, string> = {
+  "c-basics": "language-basics",
+  "cpp-basics": "language-basics",
+  "java-basics": "language-basics",
+  "py-basics": "language-basics",
+  "c-flow": "logic-patterns",
+  "cpp-flow": "logic-patterns",
+  "java-flow": "logic-patterns",
+  "py-flow": "logic-patterns",
+  "c-arrays": "arrays",
+  "cpp-arrays": "arrays",
+  "java-methods": "arrays",
+  "py-structures": "arrays",
+  "cpp-stl": "stl",
+};
+
+// The practice link for a module, or null when it has no matching topic
+function practiceLink(m: Module): string | null {
+  if (m.practice) return `/practice/${practiceTopic[m.practice] ?? m.practice}`;
+  const topic = practiceByModule[m.id];
+  return topic ? `/practice/${topic}` : null;
+}
+
 type Item = { name: string; weight: number; module: string; link: string | null };
 
 export type NewTask = {
@@ -173,7 +222,7 @@ function itemsOf(modules: Module[]): Item[] {
         name: name.trim(),
         weight: Math.min(3, Math.max(1, Number(w) || 1)),
         module: m.name,
-        link: m.practice ? `/practice/${m.practice}` : null,
+        link: practiceLink(m),
       };
     })
   );
