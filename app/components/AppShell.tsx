@@ -12,6 +12,7 @@ type NavItem = {
   label: string;
   icon: ReactNode;
   soon?: boolean;
+  desktopOnly?: boolean;
 };
 
 function Icon({ children }: { children: ReactNode }) {
@@ -63,6 +64,17 @@ const nav: NavItem[] = [
     ),
   },
   {
+    href: "/editor",
+    label: "Code Editor",
+    desktopOnly: true,
+    icon: (
+      <Icon>
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M7 10l3 2.5L7 15M12.5 15H17" />
+      </Icon>
+    ),
+  },
+  {
     href: "/partner",
     label: "Teammates",
     icon: (
@@ -94,7 +106,7 @@ const nav: NavItem[] = [
   },
 ];
 
-const mobileTabs = nav.filter((item) => !item.soon);
+const mobileTabs = nav.filter((item) => !item.soon && !item.desktopOnly);
 
 export default function AppShell({
   children,
