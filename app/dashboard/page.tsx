@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../lib/supabase/client";
 import { getDomain } from "../../lib/roadmaps";
+import { subjects } from "../../lib/questions";
 import AppShell from "../components/AppShell";
 
 type Client = ReturnType<typeof createClient>;
@@ -36,8 +37,34 @@ type Card = RoadmapRow & {
   tasks: Task[];
 };
 
+// Practice numbers for one subject (solved of total questions)
+type SubjectStat = {
+  id: string;
+  name: string;
+  solved: number;
+  total: number;
+};
+
 const TASK_COLUMNS = "id, day_number, position, title, kind, done, module, link";
 const WARN_HOURS = 6;
+
+// Which practice subjects belong to which roadmap (roadmap id -> subject ids).
+// Roadmaps that are not listed here have no question bank yet.
+const practiceSubjectsFor: Record<string, string[]> = {
+  dsa: ["dsa"],
+  sql: ["sql"],
+  web: ["web-dev"],
+  aiml: ["ai-ml"],
+  cloud: ["cloud"],
+  systemdesign: ["hld", "lld"],
+};
+
+// Short names for the Practice card sentence
+const shortSubjectName: Record<string, string> = {
+  hld: "HLD",
+  lld: "LLD",
+  "ai-ml": "AI and ML",
+};
 
 // The current time is passed in after the page loads, never read while rendering
 function greeting(now: Date | null) {
@@ -68,6 +95,11 @@ function computeStreak(stamps: string[], now: Date) {
 
 function isComplete(c: Card) {
   return c.total > 0 && c.done >= c.total;
+}
+
+// Where a subject lives on the Practice page (DSA is the default page)
+function practiceHref(subjectId: string) {
+  return subjectId === "dsa" ? "/practice" : `/practice?subject=${subjectId}`;
 }
 
 async function loadCard(supabase: Client, r: RoadmapRow) {
@@ -182,8 +214,9 @@ export default function DashboardPage() {
   const [college, setCollege] = useState<string | null>(null);
   const [cards, setCards] = useState<Card[]>([]);
   const [completions, setCompletions] = useState<Record<string, string>>({}); // task id -> finished at
-  const [solved, setSolved] = useState(0);
-  const [totalProblems, setTotalProblems] = useState(0);
+  const [solved, setSolved] = useState(0); // solved questions, all subjects
+  const [totalProblems, setTotalProblems] = useState(0); // all questions, all subjects
+  const [bySubject, setBySubject] = useState<SubjectStat[]>([]);
   const [pendingRequests, setPendingRequests] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [error, setError] = useState("");
@@ -210,7 +243,7 @@ export default function DashboardPage() {
       }
       setEmail(user.email ?? "");
 
-      const [profileRes, roadmapRes, solvedRes, topicsRes, requestRes, messageRes, doneRes] =
+      const [profileRes, roadmapRes, progressRes, topicsRes, requestRes, messageRes, doneRes] =
         await Promise.all([
           supabase
             .from("profiles")
@@ -221,13 +254,10 @@ export default function DashboardPage() {
             .from("roadmaps")
             .select("id, skill, level, hours_per_day")
             .eq("user_id", user.id),
-          supabase
-            .from("problem_progress")
-            .select("problem_id")
-            .eq("user_id", user.id)
-            .eq("status", "solved")
-            .like("problem_id", "dsa-%"),
-          supabase.from("question_topics").select("total").eq("subject", "dsa"),
+          // Solved questions per topic, for every subject (the view is per student)
+          supabase.from("question_topic_progress").select("subject, solved"),
+          // Total questions per topic, for every subject
+          supabase.from("question_topics").select("subject, total"),
           supabase
             .from("partner_requests")
             .select("id", { count: "exact", head: true })
@@ -252,8 +282,28 @@ export default function DashboardPage() {
 
       setFullName(profileRes.data?.full_name?.trim() ?? "");
       setCollege(profileRes.data?.college ?? null);
-      setSolved((solvedRes.data ?? []).length);
-      setTotalProblems((topicsRes.data ?? []).reduce((sum, t) => sum + t.total, 0));
+
+      // Add up solved and total for each subject
+      const solvedBySubject: Record<string, number> = {};
+      (progressRes.data ?? []).forEach((row) => {
+        solvedBySubject[row.subject] = (solvedBySubject[row.subject] ?? 0) + row.solved;
+      });
+      const totalBySubject: Record<string, number> = {};
+      (topicsRes.data ?? []).forEach((row) => {
+        totalBySubject[row.subject] = (totalBySubject[row.subject] ?? 0) + row.total;
+      });
+      const stats: SubjectStat[] = subjects
+        .map((s) => ({
+          id: s.id,
+          name: s.name,
+          solved: solvedBySubject[s.id] ?? 0,
+          total: totalBySubject[s.id] ?? 0,
+        }))
+        .filter((s) => s.total > 0);
+      setBySubject(stats);
+      setSolved(stats.reduce((sum, s) => sum + s.solved, 0));
+      setTotalProblems(stats.reduce((sum, s) => sum + s.total, 0));
+
       setPendingRequests(requestRes.count ?? 0);
       setUnreadMessages(messageRes.count ?? 0);
 
@@ -265,7 +315,7 @@ export default function DashboardPage() {
 
       let firstError =
         roadmapRes.error?.message ??
-        solvedRes.error?.message ??
+        progressRes.error?.message ??
         topicsRes.error?.message ??
         requestRes.error?.message ??
         messageRes.error?.message ??
@@ -367,6 +417,33 @@ export default function DashboardPage() {
   const active = cards.filter((c) => !isComplete(c));
   const finished = cards.filter((c) => isComplete(c));
   const totalHours = active.reduce((sum, c) => sum + c.hours_per_day, 0);
+
+  // Practice subjects that belong to the student's roadmaps in progress
+  const roadmapSubjectIds: string[] = [];
+  active.forEach((c) => {
+    (practiceSubjectsFor[c.skill] ?? []).forEach((id) => {
+      if (!roadmapSubjectIds.includes(id)) roadmapSubjectIds.push(id);
+    });
+  });
+  const roadmapStats = roadmapSubjectIds
+    .map((id) => bySubject.find((s) => s.id === id))
+    .filter((s): s is SubjectStat => s !== undefined);
+
+  const practiceCardHref =
+    roadmapStats.length > 0 ? practiceHref(roadmapStats[0].id) : "/practice";
+  let practiceCardText: string;
+  if (roadmapStats.length > 0) {
+    const shown = roadmapStats
+      .slice(0, 3)
+      .map((s) => `${shortSubjectName[s.id] ?? s.name} ${s.solved} of ${s.total}`)
+      .join(", ");
+    const extra = roadmapStats.length - 3;
+    practiceCardText = `Your roadmaps: ${shown}${extra > 0 ? ` and ${extra} more` : ""}. Pick up where you left off.`;
+  } else if (solved === 0) {
+    practiceCardText = "Start with the first topic and solve your first question.";
+  } else {
+    practiceCardText = `${solved} of ${totalProblems} solved. Pick up where you left off.`;
+  }
 
   const teammateNote =
     pendingRequests > 0
@@ -560,20 +637,56 @@ export default function DashboardPage() {
         </section>
       )}
 
+      {/* Practice progress for each subject */}
+      {bySubject.length > 0 && (
+        <section aria-label="Practice by subject" className="mt-10">
+          <h2 className="text-lg font-semibold">Practice by subject</h2>
+          <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+            {bySubject.map((s) => {
+              const pct = s.total ? Math.round((s.solved / s.total) * 100) : 0;
+              return (
+                <li key={s.id}>
+                  <Link
+                    href={practiceHref(s.id)}
+                    className="block h-full rounded-panel border border-border bg-surface p-4 transition-colors hover:bg-surface-strong"
+                  >
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="font-medium">{s.name}</span>
+                      <span className="shrink-0 whitespace-nowrap text-sm text-muted">
+                        {s.solved} of {s.total}
+                      </span>
+                    </div>
+                    <div
+                      role="progressbar"
+                      aria-label={`${s.name} progress`}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={pct}
+                      className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-strong"
+                    >
+                      <div
+                        className="h-full rounded-full bg-linear-to-r from-accent to-glow"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
       {/* Shortcuts */}
       <section className="mt-10">
         <h2 className="text-lg font-semibold">Keep going</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-3">
           <Link
-            href="/practice"
+            href={practiceCardHref}
             className="rounded-panel border border-border bg-surface p-5 transition-colors hover:bg-surface-strong"
           >
             <h3 className="font-semibold">Practice</h3>
-            <p className="mt-2 text-sm text-muted">
-              {solved === 0
-                ? "Start with the first topic and solve your first question."
-                : `${solved} of ${totalProblems} solved. Pick up where you left off.`}
-            </p>
+            <p className="mt-2 text-sm text-muted">{practiceCardText}</p>
           </Link>
 
           <Link
