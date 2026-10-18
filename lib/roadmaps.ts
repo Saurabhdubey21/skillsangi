@@ -152,6 +152,25 @@ export function basicsTopicCount(language: Domain) {
 
 // ---------- Turning topics into tasks ----------
 
+// The curriculum files use short practice names. These are the real topic ids in the
+// questions database (curriculum name -> live topic id).
+const practiceTopic: Record<string, string> = {
+  basics: "language-basics",
+  patterns: "logic-patterns",
+  recursion: "recursion",
+  stl: "stl",
+  arrays: "arrays",
+  strings: "strings-windows",
+  "binary-search": "binary-search",
+  "linked-lists": "linkedlist-stack-queue",
+  stacks: "linkedlist-stack-queue",
+  queues: "linkedlist-stack-queue",
+  hashmaps: "hashing",
+  trees: "trees-heaps-greedy",
+  graphs: "graphs",
+  dp: "dynamic-programming",
+};
+
 type Item = { name: string; weight: number; module: string; link: string | null };
 
 export type NewTask = {
@@ -173,7 +192,7 @@ function itemsOf(modules: Module[]): Item[] {
         name: name.trim(),
         weight: Math.min(3, Math.max(1, Number(w) || 1)),
         module: m.name,
-        link: m.practice ? `/practice/${m.practice}` : null,
+        link: m.practice ? `/practice/${practiceTopic[m.practice] ?? m.practice}` : null,
       };
     })
   );
