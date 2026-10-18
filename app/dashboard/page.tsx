@@ -52,7 +52,9 @@ const WARN_HOURS = 6;
 // Roadmaps that are not listed here have no question bank yet.
 const practiceSubjectsFor: Record<string, string[]> = {
   dsa: ["dsa"],
+  oops: ["lld"],
   sql: ["sql"],
+  dbms: ["sql"],
   web: ["web-dev"],
   aiml: ["ai-ml"],
   cloud: ["cloud"],
