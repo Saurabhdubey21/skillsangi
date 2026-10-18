@@ -201,6 +201,14 @@ export default function TopicClient() {
                     <span className="sr-only"> {p.title} on {platformLabel[p.platform] ?? p.platform} (opens in a new tab)</span>
                   </a>
 
+                  <Link
+                    href={`/practice/${params.topic}/${encodeURIComponent(p.id)}`}
+                    className={linkClass}
+                  >
+                    Code
+                    <span className="sr-only"> {p.title} in the editor</span>
+                  </Link>
+
                   <select
                     aria-label={`Status for ${p.title}`}
                     value={current.status}
