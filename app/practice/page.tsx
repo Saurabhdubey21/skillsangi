@@ -7,26 +7,39 @@ import { languageResources } from "../../lib/problems";
 import {
   getSolvedByTopic,
   getTopics,
+  subjects,
   topicDescription,
   type TopicSummary,
 } from "../../lib/questions";
 import { useProblemProgress } from "../../lib/useProblemProgress";
 
-const SUBJECT = "dsa";
+const DEFAULT_SUBJECT = "dsa";
 
 export default function PracticePage() {
   const { loading, userName, progress, error } = useProblemProgress();
+  // null until we have read ?subject= from the address bar
+  const [subject, setSubject] = useState<string | null>(null);
   const [topics, setTopics] = useState<TopicSummary[]>([]);
   const [solvedByTopic, setSolvedByTopic] = useState<Record<string, number>>({});
   const [topicsLoading, setTopicsLoading] = useState(true);
   const [topicsError, setTopicsError] = useState("");
 
+  // Read ?subject= once. Unknown or missing values fall back to DSA.
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get("subject");
+    setSubject(subjects.find((s) => s.id === wanted)?.id ?? DEFAULT_SUBJECT);
+  }, []);
+
   // Wait for the sign-in check in useProblemProgress before asking for data
   useEffect(() => {
-    if (loading) return;
+    if (loading || !subject) return;
+    const current = subject;
     let active = true;
     async function load() {
-      const [t, s] = await Promise.all([getTopics(SUBJECT), getSolvedByTopic(SUBJECT)]);
+      const [t, s] = await Promise.all([
+        getTopics(current),
+        getSolvedByTopic(current),
+      ]);
       if (!active) return;
       setTopics(t.data);
       setSolvedByTopic(s.data);
@@ -37,9 +50,20 @@ export default function PracticePage() {
     return () => {
       active = false;
     };
-  }, [loading]);
+  }, [loading, subject]);
 
-  if (loading || topicsLoading) {
+  function chooseSubject(id: string) {
+    if (id === subject) return;
+    setTopicsLoading(true);
+    setTopicsError("");
+    setTopics([]);
+    setSolvedByTopic({});
+    setSubject(id);
+    const url = id === DEFAULT_SUBJECT ? "/practice" : `/practice?subject=${id}`;
+    window.history.replaceState(null, "", url);
+  }
+
+  if (loading || !subject) {
     return (
       <div
         role="status"
@@ -50,8 +74,10 @@ export default function PracticePage() {
     );
   }
 
-  // Progress rows are keyed by question id, e.g. dsa-leetcode-two-sum
-  const mine = Object.entries(progress).filter(([id]) => id.startsWith(`${SUBJECT}-`));
+  const subjectName = subjects.find((s) => s.id === subject)?.name ?? subject;
+
+  // Progress rows are keyed by question id, e.g. dsa-leetcode-two-sum or web-dev-001
+  const mine = Object.entries(progress).filter(([id]) => id.startsWith(`${subject}-`));
   const total = topics.reduce((sum, t) => sum + t.total, 0);
   const solved = Object.values(solvedByTopic).reduce((sum, n) => sum + n, 0);
   const revisit = mine.filter(([, p]) => p.status === "revisit").length;
@@ -61,9 +87,35 @@ export default function PracticePage() {
     <AppShell userName={userName}>
       <h1 className="text-3xl font-semibold sm:text-4xl">Practice</h1>
       <p className="mt-2 max-w-xl text-muted">
-        Pick a topic, solve the questions on LeetCode, GeeksforGeeks, CSES or
-        Codeforces, and track your progress here.
+        Pick a subject and a topic, solve the questions on the original sites,
+        and track your progress here.
       </p>
+
+      <div
+        role="group"
+        aria-label="Subjects"
+        className="mt-6 flex flex-wrap gap-2"
+      >
+        {subjects.map((s) => {
+          const active = s.id === subject;
+          return (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => chooseSubject(s.id)}
+              aria-pressed={active}
+              className={
+                "max-w-full rounded-control border px-3 py-2 text-left text-sm transition-colors " +
+                (active
+                  ? "border-transparent bg-accent text-on-accent"
+                  : "border-border bg-surface text-muted hover:bg-surface-strong")
+              }
+            >
+              {s.name}
+            </button>
+          );
+        })}
+      </div>
 
       {(error || topicsError) && (
         <p
@@ -76,7 +128,10 @@ export default function PracticePage() {
 
       <dl className="mt-8 grid grid-cols-3 gap-3">
         {[
-          { label: "Solved", value: `${solved} of ${total}` },
+          {
+            label: "Solved",
+            value: topicsLoading ? "..." : `${solved} of ${total}`,
+          },
           { label: "To revisit", value: String(revisit) },
           { label: "Bookmarked", value: String(saved) },
         ].map((s) => (
@@ -87,45 +142,53 @@ export default function PracticePage() {
         ))}
       </dl>
 
-      <h2 className="mt-10 text-xl font-semibold">Topics</h2>
+      <h2 className="mt-10 text-xl font-semibold">{subjectName}</h2>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        {!topicsError && topics.length === 0 && (
+        {topicsLoading && (
+          <p role="status" className="text-muted">
+            Loading topics...
+          </p>
+        )}
+        {!topicsLoading && !topicsError && topics.length === 0 && (
           <p className="text-muted">No topics yet.</p>
         )}
-        {topics.map((t) => {
-          const done = solvedByTopic[t.topic_id] ?? 0;
-          const pct = t.total ? Math.round((done / t.total) * 100) : 0;
-          return (
-            <Link
-              key={t.topic_id}
-              href={`/practice/${t.topic_id}`}
-              className="rounded-panel border border-border bg-surface p-5 transition-colors hover:bg-surface-strong"
-            >
-              <div className="flex items-baseline justify-between gap-3">
-                <h3 className="text-lg font-semibold">{t.topic}</h3>
-                <span className="shrink-0 whitespace-nowrap text-sm text-muted">
-                  {done} of {t.total}
-                </span>
-              </div>
-              {topicDescription[t.topic_id] && (
-                <p className="mt-1 text-sm text-muted">{topicDescription[t.topic_id]}</p>
-              )}
-              <div
-                role="progressbar"
-                aria-label={`${t.topic} progress`}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={pct}
-                className="mt-4 h-1.5 overflow-hidden rounded-full bg-surface-strong"
+        {!topicsLoading &&
+          topics.map((t) => {
+            const done = solvedByTopic[t.topic_id] ?? 0;
+            const pct = t.total ? Math.round((done / t.total) * 100) : 0;
+            return (
+              <Link
+                key={t.topic_id}
+                href={`/practice/${t.topic_id}`}
+                className="rounded-panel border border-border bg-surface p-5 transition-colors hover:bg-surface-strong"
               >
+                <div className="flex items-baseline justify-between gap-3">
+                  <h3 className="text-lg font-semibold">{t.topic}</h3>
+                  <span className="shrink-0 whitespace-nowrap text-sm text-muted">
+                    {done} of {t.total}
+                  </span>
+                </div>
+                {topicDescription[t.topic_id] && (
+                  <p className="mt-1 text-sm text-muted">
+                    {topicDescription[t.topic_id]}
+                  </p>
+                )}
                 <div
-                  className="h-full rounded-full bg-linear-to-r from-accent to-glow"
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-            </Link>
-          );
-        })}
+                  role="progressbar"
+                  aria-label={`${t.topic} progress`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={pct}
+                  className="mt-4 h-1.5 overflow-hidden rounded-full bg-surface-strong"
+                >
+                  <div
+                    className="h-full rounded-full bg-linear-to-r from-accent to-glow"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </Link>
+            );
+          })}
       </div>
 
       <h2 className="mt-12 text-xl font-semibold">New to a programming language?</h2>

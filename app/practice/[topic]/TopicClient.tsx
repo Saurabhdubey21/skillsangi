@@ -7,13 +7,11 @@ import AppShell from "../../components/AppShell";
 import type { Difficulty, Status } from "../../../lib/problems";
 import {
   getQuestions,
-  platformLabel,
+  platformName,
   topicDescription,
   type Question,
 } from "../../../lib/questions";
 import { useProblemProgress } from "../../../lib/useProblemProgress";
-
-const SUBJECT = "dsa";
 
 const statusOptions: { value: Status; label: string }[] = [
   { value: "not_started", label: "Not started" },
@@ -46,7 +44,8 @@ export default function TopicClient() {
     let active = true;
     async function load() {
       setQuestionsLoading(true);
-      const res = await getQuestions(SUBJECT, params.topic);
+      // Topic ids are unique across subjects, so the topic id is enough
+      const res = await getQuestions(params.topic);
       if (!active) return;
       setQuestions(res.data);
       setQuestionsError(res.error);
@@ -96,6 +95,9 @@ export default function TopicClient() {
   }
 
   const topicName = questions[0].topic;
+  // Go back to the same subject the topic belongs to (DSA is the default page)
+  const subjectId = questions[0].subject;
+  const backHref = subjectId === "dsa" ? "/practice" : `/practice?subject=${subjectId}`;
   const hasCore = questions.some((q) => q.core);
   const visible = questions.filter(
     (q) =>
@@ -104,17 +106,19 @@ export default function TopicClient() {
   );
   const solved = questions.filter((q) => progress[q.id]?.status === "solved").length;
 
-  // Group by subtopic, keeping the order the questions arrive in (by position)
+  // Group by subtopic, keeping the order the questions arrive in (by position).
+  // An empty (or missing) subtopic gives one group with no heading.
   const groups: { name: string; items: Question[] }[] = [];
   for (const q of visible) {
+    const sub = q.subtopic ?? "";
     const last = groups[groups.length - 1];
-    if (last && last.name === q.subtopic) last.items.push(q);
-    else groups.push({ name: q.subtopic, items: [q] });
+    if (last && last.name === sub) last.items.push(q);
+    else groups.push({ name: sub, items: [q] });
   }
 
   return (
     <AppShell userName={userName}>
-      <Link href="/practice" className="text-sm text-muted hover:text-foreground">
+      <Link href={backHref} className="text-sm text-muted hover:text-foreground">
         Back to practice
       </Link>
       <h1 className="mt-3 text-3xl font-semibold sm:text-4xl">{topicName}</h1>
@@ -176,17 +180,30 @@ export default function TopicClient() {
           <ul className="glass divide-y divide-border overflow-hidden">
             {g.items.map((p) => {
               const current = progress[p.id] ?? { status: "not_started" as Status, bookmarked: false };
+              const site = platformName(p);
               return (
                 <li key={p.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                   <div className="min-w-0 flex-1 basis-60">
                     <p className={`font-medium ${current.status === "solved" ? "text-muted line-through" : ""}`}>
-                      {p.title}
+                      {/* The title opens the question in a new tab */}
+                      <a
+                        href={p.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="hover:text-accent hover:underline"
+                      >
+                        {p.title}
+                        <span className="sr-only"> on {site} (opens in a new tab)</span>
+                      </a>
                     </p>
+                    {p.task && (
+                      <p className="mt-0.5 text-sm text-muted">{p.task}</p>
+                    )}
                     <div className="mt-1 flex items-center gap-2 text-xs">
                       <span className={`rounded-full px-2 py-0.5 capitalize ${difficultyStyle[p.difficulty]}`}>
                         {p.difficulty}
                       </span>
-                      <span className="text-muted">{platformLabel[p.platform] ?? p.platform}</span>
+                      <span className="text-muted">{site}</span>
                       {p.core && <span className="text-muted">Must-do</span>}
                     </div>
                   </div>
@@ -198,7 +215,7 @@ export default function TopicClient() {
                     className={linkClass}
                   >
                     Open
-                    <span className="sr-only"> {p.title} on {platformLabel[p.platform] ?? p.platform} (opens in a new tab)</span>
+                    <span className="sr-only"> {p.title} on {site} (opens in a new tab)</span>
                   </a>
 
                   <Link
