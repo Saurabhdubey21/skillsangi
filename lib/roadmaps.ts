@@ -179,6 +179,7 @@ const practiceTopic: Record<string, string> = {
 // left out on purpose: they cannot be coded in the editor yet. To add one later,
 // add a line here, for example "sql-basics": "sql-select-and-where-basics".
 const practiceByModule: Record<string, string> = {
+  // Programming languages (the DSA basics topics work in any language)
   "c-basics": "language-basics",
   "cpp-basics": "language-basics",
   "java-basics": "language-basics",
@@ -192,6 +193,49 @@ const practiceByModule: Record<string, string> = {
   "java-methods": "arrays",
   "py-structures": "arrays",
   "cpp-stl": "stl",
+  // Web development
+  "web-html": "web-dev-html-fundamentals",
+  "web-css": "web-dev-css-fundamentals",
+  "web-js": "web-dev-javascript-basics",
+  "web-tools": "web-dev-git-and-tooling",
+  "web-react": "web-dev-react",
+  "web-node": "web-dev-node-and-express",
+  "web-sql": "web-dev-databases-and-rest-apis",
+  "web-mern-auth": "web-dev-auth-and-security",
+  "web-mern-full": "web-dev-deployment-and-full-stack-projects",
+  // Cloud computing
+  "cloud-basics": "cloud-cloud-concepts-and-shared-responsibility",
+  "cloud-services": "cloud-compute",
+  "cloud-devops": "cloud-containers-and-docker",
+  "cloud-k8s": "cloud-kubernetes",
+  "cloud-architecture": "cloud-security-and-well-architected",
+  // AI and machine learning
+  "ai-maths": "ai-ml-math-for-ml-linear-algebra-statistics-calculus",
+  "ai-pandas": "ai-ml-pandas-and-data-wrangling",
+  "ai-viz": "ai-ml-data-visualization-and-eda",
+  "ai-ml": "ai-ml-regression-and-classical-models-from-scratch",
+  "ai-unsupervised": "ai-ml-clustering-and-dimensionality-reduction",
+  "ai-deep": "ai-ml-deep-learning-pytorch-cnns-and-rnns",
+  "ai-nlp": "ai-ml-nlp-transformers-and-llms",
+  // System design (high-level design questions)
+  "sd-fundamentals": "hld-fundamentals",
+  "sd-blocks": "hld-scaling-and-traffic-management",
+  "sd-data": "hld-databases-and-data-distribution",
+  "sd-reliability": "hld-reliability-and-observability",
+  "sd-cases": "hld-medium-hld-problems",
+  // SQL
+  "sql-basics": "sql-select-and-where-basics",
+  "sql-aggregation": "sql-aggregate-functions-and-group-by-having",
+  "sql-joins": "sql-joins-inner-left-self-cross",
+  "sql-window": "sql-window-functions-and-ranking",
+  "sql-practice": "sql-real-world-analytics-problems",
+  // OOPs (low-level design questions)
+  "oops-foundations": "lld-oop-fundamentals-and-class-relationships",
+  "oops-pillars": "lld-oop-fundamentals-and-class-relationships",
+  "oops-deeper": "lld-oop-fundamentals-and-class-relationships",
+  "oops-principles": "lld-solid-principles",
+  "oops-patterns": "lld-behavioral-patterns",
+  "oops-practice": "lld-easy-design-problems",
 };
 
 // The practice link for a module, or null when it has no matching topic

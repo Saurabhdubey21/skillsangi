@@ -59,6 +59,15 @@ const WARN_HOURS = 6; // total hours a day above which we show a gentle warning
 const controlClass =
   "w-full rounded-control border border-border bg-surface px-3 py-2.5 text-foreground outline-none transition-colors placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/30";
 
+// The Learn / Practice / Review pill and the "Open questions" button share one size
+const pillClass =
+  "shrink-0 self-center rounded-control border px-3 py-1.5 text-center text-xs font-medium capitalize sm:w-32";
+const questionsButtonClass =
+  "shrink-0 rounded-control border border-border bg-surface px-3 py-1.5 text-center text-xs font-medium text-accent transition-colors hover:bg-surface-strong sm:w-32";
+
+// Roadmaps where the Practice pill opens the code editor (the others only get questions)
+const codeSkills = ["dsa", "c", "cpp", "java", "python"];
+
 const durationChoices = [
   { id: "30", label: "30 days", note: "About a month" },
   { id: "60", label: "60 days", note: "Two months" },
@@ -1099,15 +1108,27 @@ export default function RoadmapPage() {
                                         </span>
                                       )}
                                     </span>
-                                    <span className="rounded-full border border-border bg-surface-strong px-2.5 py-0.5 text-xs capitalize text-muted">
-                                      {task.kind}
-                                    </span>
+                                    {task.kind === "practice" &&
+                                    task.link &&
+                                    selected &&
+                                    codeSkills.includes(selected.skill) ? (
+                                      <Link
+                                        href="/editor"
+                                        className={`${pillClass} border-accent bg-surface-strong text-accent transition-colors hover:bg-accent hover:text-on-accent`}
+                                      >
+                                        {task.kind}
+                                        <span className="sr-only"> (opens the code editor)</span>
+                                      </Link>
+                                    ) : (
+                                      <span
+                                        className={`${pillClass} border-border bg-surface-strong text-muted`}
+                                      >
+                                        {task.kind}
+                                      </span>
+                                    )}
                                   </label>
                                   {task.link && (
-                                    <Link
-                                      href={task.link}
-                                      className="shrink-0 rounded-control border border-border bg-surface px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-surface-strong"
-                                    >
+                                    <Link href={task.link} className={questionsButtonClass}>
                                       Open questions
                                     </Link>
                                   )}
