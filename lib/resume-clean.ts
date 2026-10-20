@@ -1,4 +1,5 @@
-// Cleans resume text in the browser BEFORE anything is sent to an AI service.
+// Cleans resume text in the browser BEFORE anything is sent to an AI service,
+// and again on the server before anything is saved.
 // It removes emails, phone numbers and links. It cannot find names or addresses,
 // so the student must still read the result and edit it.
 // Save as: lib/resume-clean.ts
@@ -43,7 +44,11 @@ export function cleanResumeText(raw: string, maxChars = 6000): CleanResult {
 
   // Tidy the gaps the removals leave behind.
   text = text
-    .replace(/[ \t]+$/gm, "")
+    // a run of commas, bars or semicolons with nothing between them becomes one comma
+    .replace(/(?:[,|;][ \t]*){2,}/g, ", ")
+    // a separator left alone at the start or the end of a line goes away
+    .replace(/^[ \t,|;]+/gm, "")
+    .replace(/[ \t,|;]+$/gm, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
