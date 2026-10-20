@@ -1,6 +1,6 @@
 "use client";
 
-// The round screen: chat, timer, mic, read-aloud, code box (coding) and project box (HR).
+// The round screen: chat, timer, mic, read-aloud, code box (coding), project box and resume box (HR).
 // Save as: app/interview/round/[roundId]/RoundView.tsx
 
 import Link from "next/link";
@@ -10,6 +10,7 @@ import { createClient } from "../../../../lib/supabase/client";
 import AppShell from "../../../components/AppShell";
 import { useSpeechInput, useSpeechOutput } from "./useVoice";
 import CodeBox from "./CodeBox";
+import ResumeBox from "./ResumeBox";
 
 type Item = {
   kind: "code" | "voice" | "core" | "systemdesign" | "hr";
@@ -31,6 +32,8 @@ type CallOptions = { rollback?: boolean; restore?: string };
 
 const MAX_ANSWER = 1500; // same as LIMITS.answerChars on the server
 const MAX_PROJECT = 6000; // same as LIMITS.projectChars on the server
+const MAX_RESUME = 4000; // leaves room in the project box for the student's own project text
+const RESUME_MARKER = "RESUME:\n";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -363,6 +366,17 @@ export default function RoundView() {
     if (last) voiceOut.speak(last.content);
   }
 
+  // Puts the cleaned resume into the project box under a RESUME heading.
+  // The student's own project text is kept; an older resume block is replaced.
+  function handleUseResume(text: string) {
+    setProjectText((prev) => {
+      const at = prev.indexOf(RESUME_MARKER);
+      const own = (at >= 0 ? prev.slice(0, at) : prev).trim();
+      const joined = own ? `${own}\n\n${RESUME_MARKER}${text}` : `${RESUME_MARKER}${text}`;
+      return joined.slice(0, MAX_PROJECT);
+    });
+  }
+
   // ---- Screens ----
   if (stage === "loading") {
     return (
@@ -376,6 +390,8 @@ export default function RoundView() {
   const showChat = stage === "intro" || stage === "chat" || stage === "finishing" || stage === "result";
   const lowTime = remaining !== null && remaining <= 5 * 60 * 1000;
   const isHr = roundType === "hr";
+
+  const resumeBox = <ResumeBox maxChars={MAX_RESUME} disabled={busy} onUse={handleUseResume} />;
 
   const projectBox = (
     <div className="mt-4 border-t border-border pt-4">
@@ -553,6 +569,7 @@ export default function RoundView() {
 
             {stage === "intro" && (
               <>
+                {isHr && resumeBox}
                 {isHr && projectBox}
                 <button
                   type="button"
@@ -629,6 +646,7 @@ export default function RoundView() {
                 {current?.kind === "code" && (
                   <CodeBox key={index} busy={busy} onSubmit={handleSubmitCode} />
                 )}
+                {isHr && resumeBox}
                 {isHr && projectBox}
 
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
