@@ -6,6 +6,9 @@
 //   answer : the student answers. If follow-ups are left, the AI asks one. If not, the next question comes.
 //   next   : the student skips the rest of this question. The next question comes. (no message needed)
 //
+// Project details are cleaned here (emails, phone numbers, links removed) before they are saved
+// or sent to the AI. If projectDetails is sent as an empty string, the saved text is cleared.
+//
 // Save as: app/api/interview/round/answer/route.ts
 
 import { createClient } from "@/lib/supabase/server";
@@ -22,6 +25,7 @@ import {
   type RoundType,
 } from "@/lib/ai/interview-prompt";
 import { summarisePlan, type PlanItem } from "@/lib/ai/interview-plan";
+import { cleanResumeText } from "@/lib/resume-clean";
 
 const CONTEXT_MESSAGES = 10;
 const ACTIONS = ["begin", "answer", "next"] as const;
@@ -106,8 +110,8 @@ function itemContext(item: PlanItem, state: StoredState, index: number): Partial
       question: q ? { title: q.title, difficulty: q.difficulty, topic: q.topic } : undefined,
     };
   }
-    if (item.kind !== "hr") return {};
-    return { hrSection: item.hrSection, projectDetails: state.projectDetails };
+  if (item.kind !== "hr") return {};
+  return { hrSection: item.hrSection, projectDetails: state.projectDetails };
 }
 
 // Some AI providers dislike two turns in a row from the same side, so join them.
@@ -163,10 +167,15 @@ export async function POST(request: Request) {
   if (code.length > LIMITS.codeChars) {
     return fail(`Code is too long. Keep it under ${LIMITS.codeChars} characters.`, 400);
   }
-  const project = typeof body.projectDetails === "string" ? body.projectDetails.trim() : "";
-  if (project.length > LIMITS.projectChars) {
+
+  // Project details: if the browser sent this field (even empty), it replaces the saved text.
+  const projectSent = typeof body.projectDetails === "string";
+  const projectRaw = projectSent ? (body.projectDetails as string).trim() : "";
+  if (projectRaw.length > LIMITS.projectChars) {
     return fail(`Project details are too long. Keep them under ${LIMITS.projectChars} characters.`, 400);
   }
+  // Remove emails, phone numbers and links here too, in case the text did not go through the resume box.
+  const projectClean = projectSent ? cleanResumeText(projectRaw, LIMITS.projectChars).text : "";
 
   // 3. Load the student's own round (the database only shows them their own rows)
   const { data: round } = await supabase
@@ -238,7 +247,7 @@ export async function POST(request: Request) {
   const codes = { ...state.codes };
   const currentItem = plan[state.index];
   if (action === "answer" && code && currentItem?.kind === "code") codes[String(state.index)] = code;
-  const projectDetails = project || state.projectDetails;
+  const projectDetails = projectSent ? projectClean : state.projectDetails;
   const newState: StoredState = {
     index: newIndex,
     phase: done ? "done" : "answering",
