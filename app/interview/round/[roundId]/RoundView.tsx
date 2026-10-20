@@ -1,6 +1,6 @@
 "use client";
 
-// The round screen: chat, countdown timer, next question, finish, result, mic and read-aloud.
+// The round screen: chat, timer, mic, read-aloud, code box (coding) and project box (HR).
 // Save as: app/interview/round/[roundId]/RoundView.tsx
 
 import Link from "next/link";
@@ -9,6 +9,7 @@ import { useParams, useRouter } from "next/navigation";
 import { createClient } from "../../../../lib/supabase/client";
 import AppShell from "../../../components/AppShell";
 import { useSpeechInput, useSpeechOutput } from "./useVoice";
+import CodeBox from "./CodeBox";
 
 type Item = {
   kind: "code" | "voice" | "core" | "systemdesign" | "hr";
@@ -26,8 +27,10 @@ type RoundResult = {
   interviewOver: boolean;
   report?: { passMark?: number; summary?: string; improvements?: string[] };
 };
+type CallOptions = { rollback?: boolean; restore?: string };
 
 const MAX_ANSWER = 1500; // same as LIMITS.answerChars on the server
+const MAX_PROJECT = 6000; // same as LIMITS.projectChars on the server
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -41,7 +44,7 @@ function formatTime(ms: number) {
 }
 
 const KIND_HELP: Record<Item["kind"], string> = {
-  code: "Explain your approach first: the idea, the steps and the complexity. The AI reads what you write but cannot run code.",
+  code: "Explain your approach first: the idea, the steps and the complexity. You can also submit code below. The AI reads it but cannot run it.",
   voice: "Spoken question. Explain how you would solve it in words: the idea, the steps, and the time and space complexity.",
   core: "The interviewer will choose the exact question. Answer in your own words.",
   systemdesign: "Start by asking or stating the requirements, then explain your design and its trade-offs.",
@@ -57,6 +60,7 @@ export default function RoundView() {
   const [stage, setStage] = useState<Stage>("loading");
   const [blockedText, setBlockedText] = useState("");
   const [interviewId, setInterviewId] = useState("");
+  const [roundType, setRoundType] = useState("");
 
   const [title, setTitle] = useState("");
   const [deadline, setDeadline] = useState<string | null>(null);
@@ -66,6 +70,7 @@ export default function RoundView() {
 
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
+  const [projectText, setProjectText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -162,6 +167,7 @@ export default function RoundView() {
       }
 
       setTitle(data.title ?? "");
+      setRoundType(typeof data.type === "string" ? data.type : "");
       setDeadline(data.deadline ?? null);
       setItems((data.items ?? []) as Item[]);
 
@@ -180,8 +186,9 @@ export default function RoundView() {
         .limit(300);
       setMessages((rows ?? []) as Msg[]);
 
-      const st = (row?.state ?? {}) as { phase?: string; index?: number };
+      const st = (row?.state ?? {}) as { phase?: string; index?: number; projectDetails?: string };
       setIndex(Number.isInteger(st.index) ? Number(st.index) : 0);
+      if (typeof st.projectDetails === "string") setProjectText(st.projectDetails);
       if (st.phase === "done") {
         finishRound();
       } else {
@@ -266,24 +273,31 @@ export default function RoundView() {
   }, [stage, stopMic, cancelSpeech]);
 
   // ---- One turn with the interviewer ----
-  // restoreText: for a typed answer, so it can be put back in the box if the call fails.
-  async function callAnswer(body: Record<string, unknown>, restoreText?: string) {
+  // rollback: remove the message we just added if the call fails.
+  // restore: put this text back in the answer box if the call fails.
+  async function callAnswer(body: Record<string, unknown>, opts: CallOptions = {}) {
     setBusy(true);
     setError("");
+
+    const project = projectText.trim();
+    const extra = roundType === "hr" && project ? { projectDetails: project } : {};
+
+    function undo() {
+      if (opts.rollback) setMessages((m) => m.slice(0, -1));
+      if (opts.restore !== undefined) setInput(opts.restore);
+    }
+
     try {
       const res = await fetch("/api/interview/round/answer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roundId, ...body }),
+        body: JSON.stringify({ roundId, ...body, ...extra }),
       });
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         setError(data.error ?? "Something went wrong. Please try again.");
-        if (restoreText !== undefined) {
-          setMessages((m) => m.slice(0, -1));
-          setInput(restoreText);
-        }
+        undo();
         return;
       }
 
@@ -300,10 +314,7 @@ export default function RoundView() {
       if (data.roundComplete) finishRound();
     } catch {
       setError("Could not reach the server. Check your internet and try again.");
-      if (restoreText !== undefined) {
-        setMessages((m) => m.slice(0, -1));
-        setInput(restoreText);
-      }
+      undo();
     } finally {
       setBusy(false);
     }
@@ -321,7 +332,16 @@ export default function RoundView() {
     cancelSpeech();
     setMessages((m) => [...m, { role: "user", content: text }]);
     setInput("");
-    callAnswer({ action: "answer", message: text }, text);
+    callAnswer({ action: "answer", message: text }, { rollback: true, restore: text });
+  }
+
+  function handleSubmitCode(code: string, languageLabel: string) {
+    if (!code || busy) return;
+    stopMic();
+    cancelSpeech();
+    const text = `I submitted my ${languageLabel} code for review.`;
+    setMessages((m) => [...m, { role: "user", content: text }]);
+    callAnswer({ action: "answer", message: text, code }, { rollback: true });
   }
 
   function handleNext() {
@@ -355,6 +375,30 @@ export default function RoundView() {
   const current = items[index];
   const showChat = stage === "intro" || stage === "chat" || stage === "finishing" || stage === "result";
   const lowTime = remaining !== null && remaining <= 5 * 60 * 1000;
+  const isHr = roundType === "hr";
+
+  const projectBox = (
+    <div className="mt-4 border-t border-border pt-4">
+      <h3 className="text-sm font-semibold">Your project details</h3>
+      <p className="mt-1 text-xs text-danger">
+        Do not paste your phone number, email, home address or any private data. The text is sent to AI services
+        (Gemini or Groq) to run the interview.
+      </p>
+      <textarea
+        value={projectText}
+        onChange={(e) => setProjectText(e.target.value)}
+        maxLength={MAX_PROJECT}
+        rows={6}
+        aria-label="Your project details"
+        placeholder="Describe one project: what it does, the tech you used, which parts you built, and a problem you solved."
+        className="mt-2 w-full resize-y rounded-control border border-border bg-surface px-3 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/30"
+      />
+      <p className="mt-1 text-xs text-muted">
+        {projectText.length}/{MAX_PROJECT}. You can edit this during the round; the newest text is used on your next
+        answer.
+      </p>
+    </div>
+  );
 
   return (
     <AppShell userName={userName}>
@@ -508,14 +552,17 @@ export default function RoundView() {
             </div>
 
             {stage === "intro" && (
-              <button
-                type="button"
-                onClick={handleBegin}
-                disabled={busy}
-                className="mt-4 self-start rounded-control bg-accent px-5 py-3 font-medium text-on-accent transition hover:bg-accent-hover disabled:opacity-60"
-              >
-                {busy ? "Starting..." : "Begin"}
-              </button>
+              <>
+                {isHr && projectBox}
+                <button
+                  type="button"
+                  onClick={handleBegin}
+                  disabled={busy}
+                  className="mt-4 self-start rounded-control bg-accent px-5 py-3 font-medium text-on-accent transition hover:bg-accent-hover disabled:opacity-60"
+                >
+                  {busy ? "Starting..." : "Begin"}
+                </button>
+              </>
             )}
 
             {stage === "chat" && (
@@ -578,6 +625,11 @@ export default function RoundView() {
                     ? "The microphone works in Chrome and Edge. These browsers send your voice to their own speech service to turn it into text."
                     : "Voice input works in Chrome or Edge. You can type your answer here."}
                 </p>
+
+                {current?.kind === "code" && (
+                  <CodeBox key={index} busy={busy} onSubmit={handleSubmitCode} />
+                )}
+                {isHr && projectBox}
 
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
                   <button
