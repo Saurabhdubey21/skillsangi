@@ -11,15 +11,27 @@ export type AiResult = {
   outputTokens: number | null;
 };
 
+// Optional settings. Every field is optional, so old calls like
+// generateReply(system, messages) keep working exactly as before.
+export type AiOptions = {
+  maxTokens?: number;   // longer replies, e.g. the final interview report
+  temperature?: number; // lower = more consistent (use ~0.2 for scoring)
+  json?: boolean;       // ask the AI to reply with valid JSON only
+};
+
 type ProviderName = "gemini" | "groq";
 
 const TIMEOUT_MS = 25000;
 
-function maxOutputTokens() {
-  return Number(process.env.AI_MAX_OUTPUT_TOKENS) || 800;
+function maxOutputTokens(override?: number) {
+  return override ?? (Number(process.env.AI_MAX_OUTPUT_TOKENS) || 800);
 }
 
-async function callGemini(system: string, messages: ChatTurn[]): Promise<AiResult> {
+async function callGemini(
+  system: string,
+  messages: ChatTurn[],
+  options: AiOptions
+): Promise<AiResult> {
   const key = process.env.GEMINI_API_KEY;
   const model = process.env.GEMINI_MODEL;
   if (!key || !model) throw new Error("Gemini is not configured");
@@ -35,7 +47,11 @@ async function callGemini(system: string, messages: ChatTurn[]): Promise<AiResul
           role: m.role === "assistant" ? "model" : "user",
           parts: [{ text: m.content }],
         })),
-        generationConfig: { maxOutputTokens: maxOutputTokens(), temperature: 0.4 },
+        generationConfig: {
+          maxOutputTokens: maxOutputTokens(options.maxTokens),
+          temperature: options.temperature ?? 0.4,
+          ...(options.json ? { responseMimeType: "application/json" } : {}),
+        },
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     }
@@ -56,7 +72,11 @@ async function callGemini(system: string, messages: ChatTurn[]): Promise<AiResul
   };
 }
 
-async function callGroq(system: string, messages: ChatTurn[]): Promise<AiResult> {
+async function callGroq(
+  system: string,
+  messages: ChatTurn[],
+  options: AiOptions
+): Promise<AiResult> {
   const key = process.env.GROQ_API_KEY;
   const model = process.env.GROQ_MODEL;
   if (!key || !model) throw new Error("Groq is not configured");
@@ -70,8 +90,10 @@ async function callGroq(system: string, messages: ChatTurn[]): Promise<AiResult>
     body: JSON.stringify({
       model,
       messages: [{ role: "system", content: system }, ...messages],
-      max_tokens: maxOutputTokens(),
-      temperature: 0.4,
+      max_tokens: maxOutputTokens(options.maxTokens),
+      temperature: options.temperature ?? 0.4,
+      // Groq needs the word "JSON" somewhere in the prompt when this is on.
+      ...(options.json ? { response_format: { type: "json_object" } } : {}),
     }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
@@ -92,7 +114,8 @@ async function callGroq(system: string, messages: ChatTurn[]): Promise<AiResult>
 
 export async function generateReply(
   system: string,
-  messages: ChatTurn[]
+  messages: ChatTurn[],
+  options: AiOptions = {}
 ): Promise<AiResult> {
   const first: ProviderName = process.env.AI_PROVIDER === "groq" ? "groq" : "gemini";
   const order: ProviderName[] = first === "gemini" ? ["gemini", "groq"] : ["groq", "gemini"];
@@ -100,8 +123,8 @@ export async function generateReply(
   for (const name of order) {
     try {
       return name === "gemini"
-        ? await callGemini(system, messages)
-        : await callGroq(system, messages);
+        ? await callGemini(system, messages, options)
+        : await callGroq(system, messages, options);
     } catch (err) {
       // Log only a short message (no keys, no student text) for debugging.
       console.error(`[ai] ${name} failed:`, err instanceof Error ? err.message : "unknown");
