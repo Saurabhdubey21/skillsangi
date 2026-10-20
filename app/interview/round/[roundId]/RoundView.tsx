@@ -1,6 +1,6 @@
 "use client";
 
-// The round screen: chat, countdown timer, next question, finish and result.
+// The round screen: chat, countdown timer, next question, finish, result, mic and read-aloud.
 // Save as: app/interview/round/[roundId]/RoundView.tsx
 
 import Link from "next/link";
@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "../../../../lib/supabase/client";
 import AppShell from "../../../components/AppShell";
+import { useSpeechInput, useSpeechOutput } from "./useVoice";
 
 type Item = {
   kind: "code" | "voice" | "core" | "systemdesign" | "hr";
@@ -72,8 +73,18 @@ export default function RoundView() {
   const [finishFailed, setFinishFailed] = useState(false);
   const [finalState, setFinalState] = useState<"idle" | "writing" | "done" | "failed">("idle");
 
+  const [autoRead, setAutoRead] = useState(false);
+
   const finishingRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Voice: the mic adds the spoken words to the answer box; read-aloud speaks the replies.
+  const mic = useSpeechInput((text) => {
+    setInput((prev) => ((prev ? prev + " " : "") + text).slice(0, MAX_ANSWER));
+  });
+  const voiceOut = useSpeechOutput();
+  const { stop: stopMic } = mic;
+  const { cancel: cancelSpeech } = voiceOut;
 
   // ---- Final report (only called when the interview is over) ----
   const writeFinal = useCallback(async (id: string) => {
@@ -246,6 +257,14 @@ export default function RoundView() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, busy]);
 
+  // Stop the mic and the voice when the round is being scored.
+  useEffect(() => {
+    if (stage === "finishing" || stage === "result") {
+      stopMic();
+      cancelSpeech();
+    }
+  }, [stage, stopMic, cancelSpeech]);
+
   // ---- One turn with the interviewer ----
   // restoreText: for a typed answer, so it can be put back in the box if the call fails.
   async function callAnswer(body: Record<string, unknown>, restoreText?: string) {
@@ -274,6 +293,7 @@ export default function RoundView() {
       }
       if (typeof data.reply === "string" && data.reply) {
         setMessages((m) => [...m, { role: "assistant", content: data.reply }]);
+        if (autoRead && voiceOut.supported && !data.roundComplete) voiceOut.speak(data.reply);
       }
       if (Number.isInteger(data.index)) setIndex(data.index);
       setStage((s) => (s === "intro" ? "chat" : s));
@@ -297,6 +317,8 @@ export default function RoundView() {
   function handleSend() {
     const text = input.trim();
     if (!text || busy) return;
+    stopMic();
+    cancelSpeech();
     setMessages((m) => [...m, { role: "user", content: text }]);
     setInput("");
     callAnswer({ action: "answer", message: text }, text);
@@ -311,7 +333,14 @@ export default function RoundView() {
         : "Skip the rest of this question and move on?"
     );
     if (!ok) return;
+    stopMic();
+    cancelSpeech();
     callAnswer({ action: "next" });
+  }
+
+  function replayLast() {
+    const last = [...messages].reverse().find((m) => m.role === "assistant");
+    if (last) voiceOut.speak(last.content);
   }
 
   // ---- Screens ----
@@ -421,6 +450,31 @@ export default function RoundView() {
           )}
 
           <section className="glass mt-4 flex min-w-0 flex-col rounded-panel p-4 sm:p-6">
+            {voiceOut.supported && (stage === "intro" || stage === "chat") && (
+              <div className="mb-3 flex flex-wrap items-center gap-4 text-sm">
+                <label className="flex items-center gap-2 text-muted">
+                  <input
+                    type="checkbox"
+                    checked={autoRead}
+                    onChange={(e) => {
+                      setAutoRead(e.target.checked);
+                      if (!e.target.checked) cancelSpeech();
+                    }}
+                  />
+                  Read replies aloud
+                </label>
+                {messages.some((m) => m.role === "assistant") && (
+                  <button
+                    type="button"
+                    onClick={voiceOut.speaking ? voiceOut.cancel : replayLast}
+                    className="font-medium text-accent hover:underline"
+                  >
+                    {voiceOut.speaking ? "Stop voice" : "Replay last reply"}
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="max-h-[50vh] min-h-[160px] space-y-4 overflow-y-auto pr-1" aria-live="polite">
               {messages.length === 0 && !busy && (
                 <p className="py-8 text-center text-muted">
@@ -478,19 +532,53 @@ export default function RoundView() {
                     }}
                     maxLength={MAX_ANSWER}
                     rows={3}
-                    placeholder="Type your answer here..."
+                    placeholder="Type your answer here, or use the microphone..."
                     aria-label="Your answer"
                     className="w-full resize-none rounded-control border border-border bg-surface px-3 py-2.5 text-foreground outline-none transition-colors placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/30"
                   />
-                  <button
-                    type="button"
-                    onClick={handleSend}
-                    disabled={busy || !input.trim()}
-                    className="rounded-control bg-accent px-5 py-3 font-medium text-on-accent transition hover:bg-accent-hover disabled:opacity-60"
-                  >
-                    Send
-                  </button>
+                  <div className="flex flex-col gap-2">
+                    {mic.supported && (
+                      <button
+                        type="button"
+                        onClick={mic.listening ? mic.stop : mic.start}
+                        disabled={busy}
+                        aria-pressed={mic.listening}
+                        className={`rounded-control border px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60 ${
+                          mic.listening
+                            ? "border-danger text-danger"
+                            : "border-border bg-surface text-muted hover:text-foreground"
+                        }`}
+                      >
+                        {mic.listening ? "Stop mic" : "Use mic"}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleSend}
+                      disabled={busy || !input.trim()}
+                      className="rounded-control bg-accent px-5 py-3 font-medium text-on-accent transition hover:bg-accent-hover disabled:opacity-60"
+                    >
+                      Send
+                    </button>
+                  </div>
                 </div>
+
+                {mic.listening && (
+                  <p role="status" className="mt-2 text-xs text-danger">
+                    Listening... speak your answer, then press Stop mic and check the text before sending.
+                  </p>
+                )}
+                {mic.micError && (
+                  <p role="alert" className="mt-2 text-xs text-danger">
+                    {mic.micError}
+                  </p>
+                )}
+                <p className="mt-2 text-xs text-muted">
+                  {mic.supported
+                    ? "The microphone works in Chrome and Edge. These browsers send your voice to their own speech service to turn it into text."
+                    : "Voice input works in Chrome or Edge. You can type your answer here."}
+                </p>
+
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
                   <button
                     type="button"
