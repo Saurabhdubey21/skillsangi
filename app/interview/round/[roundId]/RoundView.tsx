@@ -282,8 +282,10 @@ export default function RoundView() {
     setBusy(true);
     setError("");
 
+    // In the HR round the project box is always sent, even when it is empty.
+    // The server then replaces its saved copy, so clearing the box really clears the saved text.
     const project = projectText.trim();
-    const extra = roundType === "hr" && project ? { projectDetails: project } : {};
+    const extra = roundType === "hr" ? { projectDetails: project } : {};
 
     function undo() {
       if (opts.rollback) setMessages((m) => m.slice(0, -1));
@@ -411,7 +413,7 @@ export default function RoundView() {
       />
       <p className="mt-1 text-xs text-muted">
         {projectText.length}/{MAX_PROJECT}. You can edit this during the round; the newest text is used on your next
-        answer.
+        answer. If you clear the box, the saved text is removed on your next answer.
       </p>
     </div>
   );
