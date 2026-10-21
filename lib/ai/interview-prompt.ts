@@ -230,6 +230,10 @@ const BAND_DEPTH: Record<Band, string> = {
   above10: "Expect depth, trade-offs and clear reasoning. Keep questions at intermediate to advanced level.",
 };
 
+// Added to every coding reply after code was submitted. The interviewer must never give the solution.
+const NO_SOLUTION_RULE =
+  "STRICT RULE: never name or hint at a better technique, data structure, algorithm, trick or target complexity. Never say things like store, precompute, remember, hash map, sort first, two pointers, greedy, or 'in O of n'. Never suggest what the student should change. You may only ask generic questions: can they make it faster, what are the time and space complexity, why this approach, what happens on a specific edge case. Only if the student's OWN last message already described a better idea may you refer to that idea, and then only in the student's own words.";
+
 // What the interviewer does after the student submits code, and while they discuss it.
 function codeReviewLines(ctx: InterviewerContext): string[] {
   const submissions = ctx.codeSubmissions ?? 0;
@@ -238,8 +242,9 @@ function codeReviewLines(ctx: InterviewerContext): string[] {
   if (ctx.codeJustSubmitted && submissions <= 1) {
     return [
       "The student has just submitted their first code. Judge it by reading only.",
-      "If it looks like a brute-force solution (for example nested loops over all pairs or subsets, scanning the same data again and again, or plain recursion that repeats work) and a smarter idea probably exists, ask ONE question: can they optimize it, and what are the time and space complexity of this version? Do not name the better technique and do not give the solution.",
+      "If it looks like a brute-force solution (for example nested loops over all pairs or subsets, scanning the same data again and again, or plain recursion that repeats work) and a smarter idea probably exists, ask ONE question: can they optimize it, and what are the time and space complexity of this version?",
       "If the code already looks efficient, ask ONE question about its time and space complexity, why they chose this approach, or an edge case it may miss.",
+      NO_SOLUTION_RULE,
     ];
   }
 
@@ -248,6 +253,7 @@ function codeReviewLines(ctx: InterviewerContext): string[] {
     return [
       "The student has submitted an improved version of their code. The earlier version is shown above for comparison.",
       "Ask ONE question about the time and space complexity of the improved version, why it is better than the first, or an edge case. Do not say whether it is right or wrong.",
+      NO_SOLUTION_RULE,
     ];
   }
 
@@ -255,15 +261,17 @@ function codeReviewLines(ctx: InterviewerContext): string[] {
   if (submissions >= 1) {
     if (ctx.canSubmitAgain) {
       return [
-        "The student is discussing the code they already submitted. If their last answer described a better approach, ask them to write that improved code in the code editor and submit it. Otherwise ask ONE follow-up about time or space complexity, why they chose this approach, an edge case or a failing input.",
+        "The student is discussing the code they already submitted. Look ONLY at the student's last message. If it clearly describes a different, better approach in the student's own words, ask them to write that improved code in the code editor and submit it. If it does not, do NOT suggest any idea: ask ONE generic question about time or space complexity, why they chose this approach, an edge case, or whether they can make it faster.",
+        NO_SOLUTION_RULE,
       ];
     }
     return [
       "The student is discussing the code they submitted. Ask ONE follow-up about time or space complexity, why they chose this approach, an edge case or a failing input.",
+      NO_SOLUTION_RULE,
     ];
   }
 
-  return ["Good follow-ups: time and space complexity, an edge case, a failing input, or a better approach."];
+  return ["Good follow-ups: time and space complexity, an edge case, a failing input, or whether they can make it faster.", NO_SOLUTION_RULE];
 }
 
 function roundText(ctx: InterviewerContext): string[] {
