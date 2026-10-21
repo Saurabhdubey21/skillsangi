@@ -6,6 +6,13 @@
 //   answer : the student answers. If follow-ups are left, the AI asks one. If not, the next question comes.
 //   next   : the student skips the rest of this question. The next question comes. (no message needed)
 //
+// Coding questions (kind "code") run in three stages, kept in the saved state:
+//   approach : the AI asked for the approach. The student's next answer opens the code stage
+//              with a fixed reply (no AI call). Code is rejected in this stage.
+//   code     : the code editor is open. Only a code submission is accepted (words are rejected).
+//   review   : the AI has read the code. The student answers in words, or submits one improved
+//              version (MAX_CODE_SUBMISSIONS in total). A code submission counts as a follow-up.
+//
 // Project details are cleaned here (emails, phone numbers, links removed) before they are saved
 // or sent to the AI. If projectDetails is sent as an empty string, the saved text is cleared.
 //
@@ -19,6 +26,7 @@ import {
   buildInterviewerPrompt,
   FOLLOW_UPS,
   LIMITS,
+  MAX_CODE_SUBMISSIONS,
   type Band,
   type InterviewerContext,
   type InterviewPhase,
@@ -31,19 +39,31 @@ const CONTEXT_MESSAGES = 10;
 const ACTIONS = ["begin", "answer", "next"] as const;
 type Action = (typeof ACTIONS)[number];
 
+type CodeStage = "approach" | "code" | "review";
+
 // What we keep in interview_rounds.state. The start route creates it as
-// { index: 0, phase: "intro", followUpsUsed: 0 }.
+// { index: 0, phase: "intro", followUpsUsed: 0 }; the other fields get defaults when read.
 type StoredState = {
   index: number;
   phase: "intro" | "answering" | "done";
   followUpsUsed: number;
   codes: Record<string, string>; // latest code per question index
+  firstCodes: Record<string, string>; // the first version, kept when an improved version is submitted
   projectDetails: string;
+  codeStage: CodeStage; // only meaningful while the current question is a coding question
+  codeCount: number; // code submissions for the current question
+  canSubmitCode: boolean; // is the code editor open right now? (the screen reads this)
 };
 
 const WRAPUP_TEXT: Record<TeacherLanguage, string> = {
   english: "Thank you, that is the end of this round. Your report will appear on the screen.",
   hinglish: "Thank you, yahan is round ka end hota hai. Aapki report screen par dikhegi.",
+};
+
+// Fixed reply after the student has explained the approach (no AI call).
+const APPROACH_DONE_TEXT: Record<TeacherLanguage, string> = {
+  english: "Thanks. Now write your code in the editor below and press Submit code.",
+  hinglish: "Thanks. Ab neeche editor mein apna code likhiye aur Submit code dabaiye.",
 };
 
 function fail(message: string, status: number, detail?: string) {
@@ -55,6 +75,16 @@ function isLanguage(v: unknown): v is TeacherLanguage {
   return typeof v === "string" && (LANGUAGES as readonly string[]).includes(v);
 }
 
+function readStringMap(v: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (v && typeof v === "object") {
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      if (typeof val === "string") out[k] = val;
+    }
+  }
+  return out;
+}
+
 function parseState(v: unknown): StoredState | null {
   if (!v || typeof v !== "object") return null;
   const s = v as Record<string, unknown>;
@@ -62,18 +92,17 @@ function parseState(v: unknown): StoredState | null {
   const used = Number(s.followUpsUsed);
   if (!Number.isInteger(index) || index < 0 || !Number.isInteger(used) || used < 0) return null;
   if (s.phase !== "intro" && s.phase !== "answering" && s.phase !== "done") return null;
-  const codes: Record<string, string> = {};
-  if (s.codes && typeof s.codes === "object") {
-    for (const [k, val] of Object.entries(s.codes as Record<string, unknown>)) {
-      if (typeof val === "string") codes[k] = val;
-    }
-  }
+  const count = Number(s.codeCount);
   return {
     index,
     phase: s.phase,
     followUpsUsed: used,
-    codes,
+    codes: readStringMap(s.codes),
+    firstCodes: readStringMap(s.firstCodes),
     projectDetails: typeof s.projectDetails === "string" ? s.projectDetails : "",
+    codeStage: s.codeStage === "code" || s.codeStage === "review" ? s.codeStage : "approach",
+    codeCount: Number.isInteger(count) && count >= 0 ? count : 0,
+    canSubmitCode: s.canSubmitCode === true,
   };
 }
 
@@ -93,13 +122,24 @@ function budgetFor(item: PlanItem): number {
 }
 
 // The part of the interviewer context that depends on the current question.
-function itemContext(item: PlanItem, state: StoredState, index: number): Partial<InterviewerContext> {
+function itemContext(
+  item: PlanItem,
+  state: StoredState,
+  index: number,
+  justSubmitted: boolean
+): Partial<InterviewerContext> {
   if (item.kind === "code" || item.kind === "voice") {
     const q = item.question;
+    const isCode = item.kind === "code";
+    const key = String(index);
     return {
       question: { title: q.title, difficulty: q.difficulty, topic: q.topic },
-      voiceOnly: item.kind === "voice",
-      studentCode: item.kind === "code" ? state.codes[String(index)] : undefined,
+      voiceOnly: !isCode,
+      studentCode: isCode ? state.codes[key] : undefined,
+      previousCode: isCode && state.codeCount >= 2 ? state.firstCodes[key] : undefined,
+      codeSubmissions: isCode ? state.codeCount : 0,
+      codeJustSubmitted: isCode ? justSubmitted : false,
+      canSubmitAgain: isCode ? state.canSubmitCode : false,
     };
   }
   if (item.kind === "core") return { coreTopic: item.coreTopic };
@@ -201,6 +241,10 @@ export async function POST(request: Request) {
   const state = parseState(round.state);
   if (!plan || plan.length === 0 || !state) return fail("Start the round first.", 409);
 
+  // Older rounds were saved before the code stages existed. Their state has no codeStage key.
+  const rawState = (round.state ?? {}) as Record<string, unknown>;
+  const hasStageKeys = typeof rawState.codeStage === "string";
+
   // 4. Timer: past the deadline, no more answers. Step 2 will score the round.
   if (!round.deadline || Date.parse(round.deadline) < Date.now()) {
     return Response.json({ timeUp: true, roundComplete: true, total: plan.length });
@@ -213,22 +257,58 @@ export async function POST(request: Request) {
   let aiPhase: InterviewPhase;
   let newIndex = state.index;
   let newUsed = state.followUpsUsed;
+  let newStage: CodeStage = state.codeStage;
+  let newCodeCount = state.codeCount;
   let done = false;
+  let fixedReply = false; // true: the reply is fixed text, no AI call
+  let codeSubmitted = false;
 
   if (action === "begin") {
     if (state.phase !== "intro") return fail("This round has already begun.", 409);
     aiPhase = "intro";
     newUsed = 0;
+    newStage = "approach";
+    newCodeCount = 0;
   } else {
     if (state.phase !== "answering") return fail("Press Start first.", 409);
     const current = plan[state.index];
     if (!current) return fail("Something went wrong. Please try again.", 500, "no plan item at index");
-    if (action === "answer" && state.followUpsUsed < budgetFor(current)) {
+    const budget = budgetFor(current);
+    const isCodeItem = current.kind === "code";
+
+    if (action === "answer" && isCodeItem && code) {
+      // A code submission
+      if (state.codeStage === "approach") {
+        return fail("Please explain your approach in words first. The code editor opens after that.", 409);
+      }
+      if (state.codeCount >= MAX_CODE_SUBMISSIONS) {
+        return fail("You have already submitted code the most times allowed for this problem.", 409);
+      }
+      if (state.followUpsUsed >= budget) {
+        return fail("This problem is finished. Press Next question to continue.", 409);
+      }
+      aiPhase = "followup";
+      newUsed = state.followUpsUsed + 1;
+      newStage = "review";
+      newCodeCount = state.codeCount + 1;
+      codeSubmitted = true;
+    } else if (action === "answer" && isCodeItem && state.codeStage === "approach") {
+      // The approach is explained: open the code editor with a fixed reply (no AI call, no follow-up used)
+      aiPhase = "followup"; // not used for the AI in this case
+      newStage = "code";
+      fixedReply = true;
+    } else if (action === "answer" && isCodeItem && state.codeStage === "code") {
+      // Words are not accepted while the student should be writing code
+      return fail("Write your code in the code editor and press Submit code. Or press Next question to skip.", 409);
+    } else if (action === "answer" && state.followUpsUsed < budget) {
       aiPhase = "followup";
       newUsed = state.followUpsUsed + 1;
     } else {
+      // Next question (the student skipped, or the follow-ups are used up)
       newIndex = state.index + 1;
       newUsed = 0;
+      newStage = "approach";
+      newCodeCount = 0;
       done = newIndex >= plan.length;
       aiPhase = done ? "wrapup" : "ask";
     }
@@ -245,21 +325,41 @@ export async function POST(request: Request) {
 
   // 7. New state values (code and project details are remembered for later turns)
   const codes = { ...state.codes };
-  const currentItem = plan[state.index];
-  if (action === "answer" && code && currentItem?.kind === "code") codes[String(state.index)] = code;
+  const firstCodes = { ...state.firstCodes };
+  const codeKey = String(state.index);
+  if (codeSubmitted) {
+    // When an improved version arrives, keep the first one so the scoring can see both.
+    if (state.codeCount >= 1 && codes[codeKey]) firstCodes[codeKey] = codes[codeKey];
+    codes[codeKey] = code;
+  }
   const projectDetails = projectSent ? projectClean : state.projectDetails;
+
+  // Is the code editor open for the student's next move?
+  const nextItem = done ? undefined : plan[newIndex];
+  const canSubmitCode =
+    !!nextItem &&
+    nextItem.kind === "code" &&
+    (newStage === "code" ||
+      (newStage === "review" && newCodeCount < MAX_CODE_SUBMISSIONS && newUsed < budgetFor(nextItem)));
+
   const newState: StoredState = {
     index: newIndex,
     phase: done ? "done" : "answering",
     followUpsUsed: newUsed,
     codes,
+    firstCodes,
     projectDetails,
+    codeStage: newStage,
+    codeCount: newCodeCount,
+    canSubmitCode,
   };
 
   // 8. Get the interviewer's words. Nothing is saved yet, so an AI failure loses nothing.
   let reply: string;
   if (done) {
     reply = WRAPUP_TEXT[language];
+  } else if (fixedReply) {
+    reply = APPROACH_DONE_TEXT[language];
   } else {
     const { data: rows } = await supabase
       .from("interview_messages")
@@ -295,7 +395,7 @@ export async function POST(request: Request) {
       questionNumber,
       totalQuestions: plan.length,
       followUpsLeft: aiPhase === "followup" ? Math.max(0, budgetFor(item) - newUsed) : 0,
-      ...itemContext(item, newState, itemIndex),
+      ...itemContext(item, newState, itemIndex, codeSubmitted),
     };
 
     try {
@@ -312,15 +412,19 @@ export async function POST(request: Request) {
 
   // 9. Claim the new state. The guard stops a double-click from running the same turn twice.
   const admin = createAdminClient();
-  const { data: claimed, error: claimError } = await admin
+  let claim = admin
     .from("interview_rounds")
     .update({ state: newState })
     .eq("id", round.id)
     .eq("user_id", user.id)
     .eq("state->>phase", state.phase)
     .eq("state->>index", String(state.index))
-    .eq("state->>followUpsUsed", String(state.followUpsUsed))
-    .select("id");
+    .eq("state->>followUpsUsed", String(state.followUpsUsed));
+  if (hasStageKeys) {
+    // The approach step changes only the stage, so the stage must be part of the guard too.
+    claim = claim.eq("state->>codeStage", state.codeStage).eq("state->>codeCount", String(state.codeCount));
+  }
+  const { data: claimed, error: claimError } = await claim.select("id");
   if (claimError) {
     console.error("[interview] state error:", claimError.message);
     return fail("Something went wrong. Please try again.", 500, claimError.message);
@@ -352,6 +456,8 @@ export async function POST(request: Request) {
     index: shownIndex,
     questionNumber: shownIndex + 1,
     total: plan.length,
+    codeStage: newState.codeStage,
+    canSubmitCode: newState.canSubmitCode,
     current: summarisePlan([plan[shownIndex]])[0],
   });
 }
