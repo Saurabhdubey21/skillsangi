@@ -2,6 +2,7 @@
 
 // Code box for coding questions. Wide screens use the CodeMirror editor, narrow screens a plain text box.
 // The box can be locked (before the approach is explained, or when no submissions are left).
+// After a submission is accepted, the same code cannot be submitted again.
 // Save as: app/interview/round/[roundId]/CodeBox.tsx
 
 import { useState } from "react";
@@ -32,9 +33,24 @@ export default function CodeBox({
 }) {
   const [code, setCode] = useState("");
   const [language, setLanguage] = useState<Language>("cpp");
+  // The code we sent last, and how many submissions were left at that moment.
+  const [sent, setSent] = useState<{ code: string; left: number } | null>(null);
 
   const tooLong = code.length > MAX_CODE;
   const label = LANGUAGES.find((l) => l.id === language)?.label ?? language;
+
+  // The last submission counts as accepted only when the number of submissions left went down.
+  // If the call failed, the number did not change, so the student can press Submit again.
+  const accepted =
+    sent !== null && typeof submissionsLeft === "number" && submissionsLeft < sent.left;
+  const sameAsSent = accepted && code.trim() === sent.code;
+
+  function handleSubmit() {
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    setSent({ code: trimmed, left: typeof submissionsLeft === "number" ? submissionsLeft : 0 });
+    onSubmit(trimmed, label);
+  }
 
   return (
     <div className="mt-4 border-t border-border pt-4">
@@ -60,6 +76,10 @@ export default function CodeBox({
       {locked ? (
         <p role="status" className="mt-2 rounded-control border border-border bg-surface px-3 py-2 text-sm text-muted">
           {lockedText || "The code editor is locked right now."}
+        </p>
+      ) : sameAsSent ? (
+        <p role="status" className="mt-2 text-sm text-muted">
+          This code was already submitted. Change your code to submit an improved version.
         </p>
       ) : (
         <p role="status" className="mt-2 text-sm text-accent">
@@ -94,8 +114,8 @@ export default function CodeBox({
         </span>
         <button
           type="button"
-          onClick={() => onSubmit(code.trim(), label)}
-          disabled={locked || busy || !code.trim() || tooLong}
+          onClick={handleSubmit}
+          disabled={locked || busy || !code.trim() || tooLong || sameAsSent}
           className="rounded-control bg-accent px-4 py-2 text-sm font-medium text-on-accent transition hover:bg-accent-hover disabled:opacity-60"
         >
           Submit code
