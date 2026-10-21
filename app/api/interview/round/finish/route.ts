@@ -3,6 +3,9 @@
 // and the database saves the result. Calling it again returns the saved report.
 // Body: { roundId }
 //
+// For coding problems where the student submitted code twice, the scoring sees BOTH versions
+// (state.firstCodes holds the first one, state.codes the latest).
+//
 // Save as: app/api/interview/round/finish/route.ts
 
 import { createClient } from "@/lib/supabase/server";
@@ -29,6 +32,17 @@ function fail(message: string, status: number, detail?: string) {
 
 function isLanguage(v: unknown): v is TeacherLanguage {
   return typeof v === "string" && (LANGUAGES as readonly string[]).includes(v);
+}
+
+// Reads a { "0": "text", ... } map from the saved state. Anything else gives an empty map.
+function readStringMap(v: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (v && typeof v === "object") {
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      if (typeof val === "string") out[k] = val;
+    }
+  }
+  return out;
 }
 
 // Asks the AI to score. One retry if the AI fails or its JSON is unusable.
@@ -132,12 +146,18 @@ export async function POST(request: Request) {
     .limit(300);
   const turns = (rows ?? []) as ChatTurn[];
 
-  const codeSubmissions: { title: string; code: string }[] = [];
-  const codes = state.codes && typeof state.codes === "object" ? (state.codes as Record<string, unknown>) : {};
+  const codeSubmissions: { title: string; code: string; earlierCode?: string }[] = [];
+  const codes = readStringMap(state.codes);
+  const firstCodes = readStringMap(state.firstCodes);
   for (const [key, value] of Object.entries(codes)) {
     const item = plan[Number(key)];
-    if (item && item.kind === "code" && typeof value === "string" && value.trim()) {
-      codeSubmissions.push({ title: item.question.title, code: value });
+    if (item && item.kind === "code" && value.trim()) {
+      const earlier = firstCodes[key];
+      codeSubmissions.push({
+        title: item.question.title,
+        code: value,
+        ...(earlier && earlier.trim() ? { earlierCode: earlier } : {}),
+      });
     }
   }
 
