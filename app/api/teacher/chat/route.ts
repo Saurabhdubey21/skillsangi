@@ -91,15 +91,15 @@ export async function POST(request: Request) {
     requestedHint === 0 ? 0 : Math.min(requestedHint, currentHint + 1)
   ) as HintLevel;
 
-  // 4. Daily limit (the database function counts it safely)
-  const limit = Number(process.env.AI_DAILY_LIMIT) || 30;
-  const { data: used, error: usageError } = await supabase.rpc("bump_ai_usage", {
-    p_limit: limit,
-  });
+  // 4. Daily limit. The limit lives INSIDE the database function, so the
+  // browser cannot choose it. We only read it to show it to the student.
+  const { data: used, error: usageError } = await supabase.rpc("bump_ai_usage");
   if (usageError) {
     console.error("[teacher] usage error:", usageError.message);
     return fail("Something went wrong. Please try again.", 500);
   }
+  const { data: limitData } = await supabase.rpc("ai_daily_limit");
+  const limit = typeof limitData === "number" ? limitData : 30;
   if (used === -1) {
     return fail(`Daily limit of ${limit} messages reached. Please come back tomorrow.`, 429);
   }
