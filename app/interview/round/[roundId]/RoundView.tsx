@@ -1,6 +1,8 @@
 "use client";
 
 // The round screen: chat, timer, mic, read-aloud, code box (coding), project box and resume box (HR).
+// If the timer ran out before the student answered anything, the server gives one free restart
+// and this screen shows the "restarted" message (stage "restarted").
 // Save as: app/interview/round/[roundId]/RoundView.tsx
 
 import Link from "next/link";
@@ -21,7 +23,7 @@ type Item = {
   platform?: string | null;
 };
 type Msg = { role: "user" | "assistant"; content: string };
-type Stage = "loading" | "ready" | "intro" | "chat" | "finishing" | "result" | "blocked";
+type Stage = "loading" | "ready" | "intro" | "chat" | "finishing" | "result" | "blocked" | "restarted";
 type CodeStage = "approach" | "code" | "review";
 type RoundResult = {
   score: number;
@@ -137,6 +139,15 @@ export default function RoundView() {
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok) {
+          // The timer ran out before any answer: the server gave one free restart.
+          // No score. We clear the deadline (stops the countdown and hides the timer) and
+          // leave finishingRef set to true on purpose, so this page can never call finish again.
+          if (data.restarted === true) {
+            setDeadline(null);
+            setResult(null);
+            setStage("restarted");
+            return;
+          }
           setResult(data as RoundResult);
           setStage("result");
           finishingRef.current = false;
@@ -278,6 +289,7 @@ export default function RoundView() {
 
   const remaining = deadline ? Date.parse(deadline) - now : null;
 
+  // Only the intro and chat stages can trigger finishing, so "restarted" can never loop.
   useEffect(() => {
     if (remaining !== null && remaining <= 0 && (stage === "intro" || stage === "chat")) {
       finishRound();
@@ -288,9 +300,9 @@ export default function RoundView() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, busy]);
 
-  // Stop the mic and the voice when the round is being scored.
+  // Stop the mic and the voice when the round is being scored (or was restarted).
   useEffect(() => {
-    if (stage === "finishing" || stage === "result") {
+    if (stage === "finishing" || stage === "result" || stage === "restarted") {
       stopMic();
       cancelSpeech();
     }
@@ -497,6 +509,27 @@ export default function RoundView() {
                 See report
               </Link>
             )}
+          </div>
+        </section>
+      )}
+
+      {stage === "restarted" && (
+        <section className="glass mt-6 rounded-panel p-4 sm:p-6">
+          <h2 className="text-lg font-semibold">Your time ran out</h2>
+          <p className="mt-2 text-sm leading-relaxed">
+            Your time ran out before you answered anything. You get one more try; the interview is still open.
+          </p>
+          <p className="mt-2 text-sm text-muted">
+            Open the round again from the Mock Interview page. You will see the Start round screen, and a new
+            60-minute timer begins only when you press Start. A second timeout with no answers cannot be restarted.
+          </p>
+          <div className="mt-4">
+            <Link
+              href="/interview"
+              className="rounded-control bg-accent px-4 py-2 text-sm font-medium text-on-accent transition hover:bg-accent-hover"
+            >
+              Back to Mock Interview
+            </Link>
           </div>
         </section>
       )}

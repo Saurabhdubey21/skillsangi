@@ -6,6 +6,9 @@
 // For coding problems where the student submitted code twice, the scoring sees BOTH versions
 // (state.firstCodes holds the first one, state.codes the latest).
 //
+// If the timer ran out and the student sent ZERO answers, the round gets ONE free restart
+// (database function restart_round_if_empty). The response is then { restarted: true }.
+//
 // Save as: app/api/interview/round/finish/route.ts
 
 import { createClient } from "@/lib/supabase/server";
@@ -116,6 +119,23 @@ export async function POST(request: Request) {
   const timeUp = !!round.deadline && Date.parse(round.deadline) < Date.now();
   if (state.phase !== "done" && !timeUp) return fail("The round is not finished yet.", 409);
 
+  const admin = createAdminClient();
+
+  // 4b. Timer ran out and the student answered nothing: one free restart.
+  // The database decides (zero user messages, restarts_used < 1, interview still open).
+  // If anything goes wrong here we log it and continue to normal scoring.
+  if (timeUp && state.phase !== "done") {
+    const { data: restarted, error: restartError } = await admin.rpc("restart_round_if_empty", {
+      p_user: user.id,
+      p_round_id: round.id,
+    });
+    if (restartError) {
+      console.error("[interview] restart error:", restartError.message);
+    } else if (restarted === true) {
+      return Response.json({ restarted: true });
+    }
+  }
+
   const plan = round.questions as PlanItem[] | null;
   if (!plan || plan.length === 0) return fail("Start the round first.", 409);
 
@@ -174,7 +194,6 @@ export async function POST(request: Request) {
   }
 
   // 8. Save the result (the database also stops the interview if the round failed)
-  const admin = createAdminClient();
   const { error: finishError } = await admin.rpc("finish_round", {
     p_user: user.id,
     p_round_id: round.id,
