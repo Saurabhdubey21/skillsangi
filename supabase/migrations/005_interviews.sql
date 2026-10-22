@@ -4,8 +4,9 @@
 -- This file is for rebuilding the project. Do NOT run it on the live project.
 --
 -- Needs: auth.users, and the table public.questions (from earlier migrations).
--- Known issue, kept as it is for now: start_interview picks any one open
--- interview when a student has more than one active.
+-- start_interview: if a student has more than one active interview, the
+-- newest one (order by started_at desc) is resumed. Nothing in the database
+-- stops a student from having two active interviews; this is allowed for now.
 -- start_round uses 60 minutes; this must match ROUND_MINUTES in
 -- lib/ai/interview-prompt.ts.
 
@@ -124,9 +125,12 @@ begin
   update interviews set status = 'stopped', finished_at = now()
     where user_id = v_user and status = 'active' and expires_at < now();
 
-  -- Resume an open interview instead of starting (and counting) a new one
+  -- Resume an open interview instead of starting (and counting) a new one.
+  -- If there are several open ones, the newest wins.
   select id into v_id from interviews
-    where user_id = v_user and status = 'active' limit 1;
+    where user_id = v_user and status = 'active'
+    order by started_at desc
+    limit 1;
   if v_id is not null then return v_id; end if;
 
   select count(*) into v_used from interviews
