@@ -1,9 +1,24 @@
 -- 004_ai_daily_limit.sql
 -- AI Teacher daily message limit, decided inside the database.
--- Needs the table public.ai_usage (user_id, usage_day, message_count,
--- unique on user_id + usage_day). That table is not in the repo yet.
 -- Already applied by hand in the Supabase SQL Editor on 2026-10-22.
--- Do NOT run this on the live project again.
+-- This file is for rebuilding the project. Do NOT run it on the live project.
+
+-- One row per student per day.
+create table if not exists public.ai_usage (
+  user_id       uuid    not null references auth.users(id) on delete cascade,
+  usage_day     date    not null,
+  message_count integer not null default 0,
+  primary key (user_id, usage_day)
+);
+
+alter table public.ai_usage enable row level security;
+
+drop policy if exists "usage select own" on public.ai_usage;
+create policy "usage select own" on public.ai_usage
+  for select to authenticated
+  using (user_id = (select auth.uid()));
+
+grant select on public.ai_usage to authenticated;
 
 -- The daily limit lives here, in one place. Change the number to change the cap.
 create or replace function public.ai_daily_limit()
