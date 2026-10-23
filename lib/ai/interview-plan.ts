@@ -38,9 +38,10 @@ export type PickedQuestion = {
 };
 
 // One step of a round. The plan is saved in interview_rounds.questions.
+// "focus" is the sub-topic of a core question. Plans saved before it existed have no focus.
 export type PlanItem =
   | { kind: "code" | "voice"; question: PickedQuestion }
-  | { kind: "core"; coreTopic: Exclude<CoreTopic, "systemdesign"> }
+  | { kind: "core"; coreTopic: Exclude<CoreTopic, "systemdesign">; focus?: string }
   | { kind: "systemdesign"; question: PickedQuestion | null }
   | { kind: "hr"; hrSection: HrSection };
 
@@ -63,6 +64,47 @@ const FALLBACK: Record<Difficulty, Difficulty[]> = {
   easy: ["easy", "medium", "hard"],
   medium: ["medium", "easy", "hard"],
   hard: ["hard", "medium", "easy"],
+};
+
+// Sub-topics for core questions. Each core question in a round gets a DIFFERENT one,
+// so the same question cannot be asked twice (for example TCP vs UDP).
+const CORE_FOCUS: Record<Exclude<CoreTopic, "systemdesign">, string[]> = {
+  cn: [
+    "OSI model and TCP/IP model layers",
+    "TCP vs UDP and when to use each",
+    "TCP three-way handshake and connection closing",
+    "HTTP vs HTTPS and how TLS works",
+    "How DNS resolves a name step by step",
+    "IP addressing and subnetting",
+    "Routing and how a router decides the next hop",
+    "Flow control vs congestion control",
+    "ARP, switch vs router vs hub",
+    "NAT and firewalls",
+  ],
+  dbms: [
+    "Primary key, foreign key and other keys",
+    "Normalization and normal forms",
+    "ACID properties",
+    "Transactions and isolation levels",
+    "Indexing and B-trees",
+    "Types of joins with an example",
+    "Writing a small SQL query (group by, having, subquery)",
+    "Deadlocks and concurrency control",
+    "ER modelling and relationships",
+    "SQL vs NoSQL",
+  ],
+  oops: [
+    "The four pillars of OOP",
+    "Compile-time vs run-time polymorphism",
+    "Abstract class vs interface",
+    "Constructors and destructors",
+    "Virtual functions and how they work",
+    "Inheritance and the diamond problem",
+    "Composition vs inheritance",
+    "SOLID principles",
+    "Method overloading vs overriding",
+    "Encapsulation with a real example",
+  ],
 };
 
 export function toPicked(r: QuestionRow): PickedQuestion | null {
@@ -166,20 +208,26 @@ export function buildCodingPlan(
   ];
 }
 
-// Core round: questionsPerTopic slots for cn, dbms and oops (the AI chooses the exact question).
-// System design (above 10 LPA) is ONE big question with several follow-ups.
+// Core round: questionsPerTopic slots for cn, dbms and oops. Each slot gets its own focus
+// (a sub-topic), different from the other slots of the same topic. The AI writes the exact question.
+// System design (above 10 LPA) is ONE big question with several follow-ups. It goes FIRST,
+// because it needs the most time and carries the most marks, so the 1-hour timer cannot cut it off.
 export function buildCorePlan(band: Band, designRows: QuestionRow[], rand: Rand = Math.random): PlanItem[] {
   const plan = CORE_PLAN[band];
-  const items: PlanItem[] = [];
+  const rest: PlanItem[] = [];
+  let design: PlanItem | null = null;
   for (const topic of plan.topics) {
     if (topic === "systemdesign") {
       const picked = pickRandom(designRows.map(toPicked).filter((q): q is PickedQuestion => q !== null), rand);
-      items.push({ kind: "systemdesign", question: picked ?? null });
+      design = { kind: "systemdesign", question: picked ?? null };
     } else {
-      for (let i = 0; i < plan.questionsPerTopic; i++) items.push({ kind: "core", coreTopic: topic });
+      const focuses = shuffle(CORE_FOCUS[topic], rand);
+      for (let i = 0; i < plan.questionsPerTopic; i++) {
+        rest.push({ kind: "core", coreTopic: topic, focus: focuses[i % focuses.length] });
+      }
     }
   }
-  return items;
+  return design ? [design, ...rest] : rest;
 }
 
 export function buildHrPlan(): PlanItem[] {

@@ -1,6 +1,8 @@
 "use client";
 
 // The round screen: chat, timer, mic, read-aloud, code box (coding), project box and resume box (HR).
+// If the timer ran out before the student answered anything, the server gives one free restart
+// and this screen shows the "restarted" message (stage "restarted").
 // Save as: app/interview/round/[roundId]/RoundView.tsx
 
 import Link from "next/link";
@@ -21,7 +23,8 @@ type Item = {
   platform?: string | null;
 };
 type Msg = { role: "user" | "assistant"; content: string };
-type Stage = "loading" | "ready" | "intro" | "chat" | "finishing" | "result" | "blocked";
+type Stage = "loading" | "ready" | "intro" | "chat" | "finishing" | "result" | "blocked" | "restarted";
+type CodeStage = "approach" | "code" | "review";
 type RoundResult = {
   score: number;
   passed: boolean;
@@ -33,6 +36,7 @@ type CallOptions = { rollback?: boolean; restore?: string };
 const MAX_ANSWER = 1500; // same as LIMITS.answerChars on the server
 const MAX_PROJECT = 6000; // same as LIMITS.projectChars on the server
 const MAX_RESUME = 4000; // leaves room in the project box for the student's own project text
+const MAX_CODE_SUBMISSIONS = 2; // same as MAX_CODE_SUBMISSIONS on the server
 const RESUME_MARKER = "RESUME:\n";
 
 function sleep(ms: number) {
@@ -46,8 +50,12 @@ function formatTime(ms: number) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+function asCodeStage(v: unknown): CodeStage {
+  return v === "code" || v === "review" ? v : "approach";
+}
+
 const KIND_HELP: Record<Item["kind"], string> = {
-  code: "Explain your approach first: the idea, the steps and the complexity. You can also submit code below. The AI reads it but cannot run it.",
+  code: "First explain your approach in words: the idea, the steps and the complexity. After that the code editor opens and you can submit your code. The AI reads it but cannot run it.",
   voice: "Spoken question. Explain how you would solve it in words: the idea, the steps, and the time and space complexity.",
   core: "The interviewer will choose the exact question. Answer in your own words.",
   systemdesign: "Start by asking or stating the requirements, then explain your design and its trade-offs.",
@@ -70,6 +78,11 @@ export default function RoundView() {
   const [now, setNow] = useState(() => Date.now());
   const [items, setItems] = useState<Item[]>([]);
   const [index, setIndex] = useState(0);
+
+  // Coding question stage (the server decides these; we only show them)
+  const [codeStage, setCodeStage] = useState<CodeStage>("approach");
+  const [canSubmitCode, setCanSubmitCode] = useState(false);
+  const [codeCount, setCodeCount] = useState(0); // code submissions for the current question
 
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -126,6 +139,15 @@ export default function RoundView() {
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok) {
+          // The timer ran out before any answer: the server gave one free restart.
+          // No score. We clear the deadline (stops the countdown and hides the timer) and
+          // leave finishingRef set to true on purpose, so this page can never call finish again.
+          if (data.restarted === true) {
+            setDeadline(null);
+            setResult(null);
+            setStage("restarted");
+            return;
+          }
           setResult(data as RoundResult);
           setStage("result");
           finishingRef.current = false;
@@ -189,8 +211,18 @@ export default function RoundView() {
         .limit(300);
       setMessages((rows ?? []) as Msg[]);
 
-      const st = (row?.state ?? {}) as { phase?: string; index?: number; projectDetails?: string };
+      const st = (row?.state ?? {}) as {
+        phase?: string;
+        index?: number;
+        projectDetails?: string;
+        codeStage?: string;
+        canSubmitCode?: boolean;
+        codeCount?: number;
+      };
       setIndex(Number.isInteger(st.index) ? Number(st.index) : 0);
+      setCodeStage(asCodeStage(st.codeStage));
+      setCanSubmitCode(st.canSubmitCode === true);
+      setCodeCount(Number.isInteger(st.codeCount) ? Number(st.codeCount) : 0);
       if (typeof st.projectDetails === "string") setProjectText(st.projectDetails);
       if (st.phase === "done") {
         finishRound();
@@ -257,6 +289,7 @@ export default function RoundView() {
 
   const remaining = deadline ? Date.parse(deadline) - now : null;
 
+  // Only the intro and chat stages can trigger finishing, so "restarted" can never loop.
   useEffect(() => {
     if (remaining !== null && remaining <= 0 && (stage === "intro" || stage === "chat")) {
       finishRound();
@@ -267,9 +300,9 @@ export default function RoundView() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, busy]);
 
-  // Stop the mic and the voice when the round is being scored.
+  // Stop the mic and the voice when the round is being scored (or was restarted).
   useEffect(() => {
-    if (stage === "finishing" || stage === "result") {
+    if (stage === "finishing" || stage === "result" || stage === "restarted") {
       stopMic();
       cancelSpeech();
     }
@@ -314,7 +347,15 @@ export default function RoundView() {
         setMessages((m) => [...m, { role: "assistant", content: data.reply }]);
         if (autoRead && voiceOut.supported && !data.roundComplete) voiceOut.speak(data.reply);
       }
-      if (Number.isInteger(data.index)) setIndex(data.index);
+      if (Number.isInteger(data.index)) {
+        // A new question starts with no code submissions.
+        if (data.index !== index) setCodeCount(0);
+        setIndex(data.index);
+      }
+      // The server decides the coding stage and whether the editor is open.
+      setCodeStage(asCodeStage(data.codeStage));
+      setCanSubmitCode(data.canSubmitCode === true);
+      if (typeof body.code === "string") setCodeCount((c) => c + 1);
       setStage((s) => (s === "intro" ? "chat" : s));
       if (data.roundComplete) finishRound();
     } catch {
@@ -333,6 +374,7 @@ export default function RoundView() {
   function handleSend() {
     const text = input.trim();
     if (!text || busy) return;
+    if (items[index]?.kind === "code" && codeStage === "code") return; // the editor is open: words are not accepted
     stopMic();
     cancelSpeech();
     setMessages((m) => [...m, { role: "user", content: text }]);
@@ -392,6 +434,15 @@ export default function RoundView() {
   const showChat = stage === "intro" || stage === "chat" || stage === "finishing" || stage === "result";
   const lowTime = remaining !== null && remaining <= 5 * 60 * 1000;
   const isHr = roundType === "hr";
+
+  // Coding question: while the editor is open, the answer box is locked (the student must use the editor).
+  const isCodeQuestion = current?.kind === "code";
+  const answerLocked = isCodeQuestion && codeStage === "code";
+  const submissionsLeft = Math.max(0, MAX_CODE_SUBMISSIONS - codeCount);
+  const codeLockedText =
+    codeStage === "approach"
+      ? "The editor opens after you explain your approach in words. Type your approach above and press Send."
+      : "No more code submissions for this question. Keep answering the interviewer in words, or press Next question.";
 
   const resumeBox = <ResumeBox maxChars={MAX_RESUME} disabled={busy} onUse={handleUseResume} />;
 
@@ -458,6 +509,27 @@ export default function RoundView() {
                 See report
               </Link>
             )}
+          </div>
+        </section>
+      )}
+
+      {stage === "restarted" && (
+        <section className="glass mt-6 rounded-panel p-4 sm:p-6">
+          <h2 className="text-lg font-semibold">Your time ran out</h2>
+          <p className="mt-2 text-sm leading-relaxed">
+            Your time ran out before you answered anything. You get one more try; the interview is still open.
+          </p>
+          <p className="mt-2 text-sm text-muted">
+            Open the round again from the Mock Interview page. You will see the Start round screen, and a new
+            60-minute timer begins only when you press Start. A second timeout with no answers cannot be restarted.
+          </p>
+          <div className="mt-4">
+            <Link
+              href="/interview"
+              className="rounded-control bg-accent px-4 py-2 text-sm font-medium text-on-accent transition hover:bg-accent-hover"
+            >
+              Back to Mock Interview
+            </Link>
           </div>
         </section>
       )}
@@ -586,6 +658,12 @@ export default function RoundView() {
 
             {stage === "chat" && (
               <>
+                {answerLocked && (
+                  <p role="status" className="mt-4 rounded-control border border-border bg-surface px-3 py-2 text-sm text-muted">
+                    The code editor is open. Write your code in the editor below and press Submit code, or press Next
+                    question to skip.
+                  </p>
+                )}
                 <div className="mt-4 flex items-end gap-3">
                   <textarea
                     value={input}
@@ -598,16 +676,21 @@ export default function RoundView() {
                     }}
                     maxLength={MAX_ANSWER}
                     rows={3}
-                    placeholder="Type your answer here, or use the microphone..."
+                    disabled={answerLocked}
+                    placeholder={
+                      answerLocked
+                        ? "Use the code editor below..."
+                        : "Type your answer here, or use the microphone..."
+                    }
                     aria-label="Your answer"
-                    className="w-full resize-none rounded-control border border-border bg-surface px-3 py-2.5 text-foreground outline-none transition-colors placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/30"
+                    className="w-full resize-none rounded-control border border-border bg-surface px-3 py-2.5 text-foreground outline-none transition-colors placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
                   />
                   <div className="flex flex-col gap-2">
                     {mic.supported && (
                       <button
                         type="button"
                         onClick={mic.listening ? mic.stop : mic.start}
-                        disabled={busy}
+                        disabled={busy || answerLocked}
                         aria-pressed={mic.listening}
                         className={`rounded-control border px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60 ${
                           mic.listening
@@ -621,7 +704,7 @@ export default function RoundView() {
                     <button
                       type="button"
                       onClick={handleSend}
-                      disabled={busy || !input.trim()}
+                      disabled={busy || answerLocked || !input.trim()}
                       className="rounded-control bg-accent px-5 py-3 font-medium text-on-accent transition hover:bg-accent-hover disabled:opacity-60"
                     >
                       Send
@@ -645,8 +728,15 @@ export default function RoundView() {
                     : "Voice input works in Chrome or Edge. You can type your answer here."}
                 </p>
 
-                {current?.kind === "code" && (
-                  <CodeBox key={index} busy={busy} onSubmit={handleSubmitCode} />
+                {isCodeQuestion && (
+                  <CodeBox
+                    key={index}
+                    busy={busy}
+                    onSubmit={handleSubmitCode}
+                    locked={!canSubmitCode}
+                    lockedText={codeLockedText}
+                    submissionsLeft={submissionsLeft}
+                  />
                 )}
                 {isHr && resumeBox}
                 {isHr && projectBox}
