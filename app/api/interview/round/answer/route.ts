@@ -142,7 +142,7 @@ function itemContext(
       canSubmitAgain: isCode ? state.canSubmitCode : false,
     };
   }
-  if (item.kind === "core") return { coreTopic: item.coreTopic };
+  if (item.kind === "core") return { coreTopic: item.coreTopic, coreFocus: item.focus };
   if (item.kind === "systemdesign") {
     const q = item.question;
     return {
