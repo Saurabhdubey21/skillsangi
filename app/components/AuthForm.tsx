@@ -183,7 +183,7 @@ export default function AuthForm({ mode, linkError = false }: Props) {
   const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState(
     linkError
-      ? "That email link did not work or has expired. Please try again."
+      ? "We could not sign you in from that link. If you were confirming your email, it may already be confirmed, so try logging in below. If you were resetting your password, ask for a new link and open it in the same browser."
       : ""
   );
   const [isError, setIsError] = useState(linkError);
