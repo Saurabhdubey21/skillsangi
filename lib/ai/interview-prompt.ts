@@ -326,7 +326,7 @@ function roundText(ctx: InterviewerContext): string[] {
       );
     } else if (ctx.coreFocus) {
       lines.push(
-        `The sub-topic for this question is: ${ctx.coreFocus}. When you ask a new question, ask one real interview question about exactly this sub-topic only. Follow-ups stay on the same concept. Do not repeat a question already asked in this conversation.`
+        `The sub-topic for this question is: ${ctx.coreFocus}. When you ask a new question, ask one real interview question about exactly this sub-topic only. Follow-ups stay on the same concept. Do not repeat a question already asked in this conversation. Stay inside the topic named above: never ask about operating systems, computer architecture, hardware or any other subject.`
       );
     } else {
       lines.push(
@@ -358,7 +358,10 @@ const PHASE_TEXT: Record<InterviewPhase, (c: InterviewerContext) => string> = {
   intro: (c) =>
     `Phase: start of the round. Greet the student in one short sentence, then ask question ${c.questionNumber} in the same reply. Do not list the whole plan.`,
   ask: (c) =>
-    `Phase: new question. This is question ${c.questionNumber} of ${c.totalQuestions}. Begin with a very short acknowledgement of two or three words only, such as "Okay." or "Alright, thank you." or "Fine, next." Never repeat, quote or rephrase anything the student said. Give no verdict, no praise and no correction. Then ask the new question, which must be about a different concept from every question already asked in this conversation.`,
+    `Phase: new question. This is question ${c.questionNumber} of ${c.totalQuestions}. Begin with a very short acknowledgement of two or three words only, such as "Okay." or "Alright, thank you." or "Fine, next." Never repeat, quote or rephrase anything the student said. Give no verdict, no praise and no correction. Then ask the new question, which must be about a different concept from every question already asked in this conversation.` +
+    (c.coreFocus
+      ? ` The new question MUST be about this sub-topic: ${c.coreFocus}. This overrides what the earlier questions in the conversation were about, even if the student skipped questions or the last topic was different.`
+      : ""),
   followup: (c) =>
     `Phase: follow-up. Ask exactly ONE follow-up that goes deeper on the SAME question and the SAME concept the student just answered. Do not switch to a different topic, and do not ask anything that was already asked in this conversation, not even in different words. You may ask ${c.followUpsLeft} more follow-up(s) on this question. Probe a gap or a weak point in what the student said. If the answer is clearly wrong or has a big gap, ask one probing question that makes the student think again, for example what would happen in a small specific case. Never say the answer is wrong and never give the correct answer. If you are not completely sure the answer is wrong, do not challenge it: ask the student to explain their reasoning or give an example. If the student says they do not know, stay calm and ask one simpler question on the same concept.`,
   wrapup: () =>
