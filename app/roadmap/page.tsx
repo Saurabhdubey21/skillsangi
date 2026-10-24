@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../lib/supabase/client";
+import { track } from "../../lib/admin/track-client";
 import {
   MAX_DAYS,
   MAX_HOURS,
@@ -442,6 +443,11 @@ export default function RoadmapPage() {
         prev.map((r) => (r.id === id ? { ...r, done: r.done - delta } : r))
       );
       setError("Could not save that change: " + updateError.message);
+    } else if (next) {
+      // Saved and checked (not unchecked): record it for the admin numbers.
+      // Only the subject id is sent, never the task title.
+      const skill = roadmaps.find((r) => r.id === id)?.skill;
+      track("task_completed", skill ? { roadmap: skill } : {});
     }
   }
 
