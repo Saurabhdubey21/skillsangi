@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../lib/supabase/client";
+import { SUPPORT_EMAIL } from "../../lib/site";
 import Logo from "./Logo";
 import SkillGraph from "./SkillGraph";
 import ThemePicker from "./ThemePicker";
@@ -17,8 +18,6 @@ type Props = {
 // Turn each on only after enabling that provider in Supabase (Authentication > Providers)
 const GOOGLE_ENABLED: boolean = false;
 const GITHUB_ENABLED: boolean = false;
-
-const SUPPORT_EMAIL = "Saurabhkumardubey21@gmail.com";
 
 const ring =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
@@ -291,7 +290,7 @@ export default function AuthForm({ mode, linkError = false }: Props) {
           <h2 className="mt-5 max-w-lg text-4xl font-semibold leading-[1.1] lg:text-5xl">
             Study with a plan.{" "}
             <span className="bg-linear-to-r from-accent to-glow bg-clip-text text-transparent">
-              Practise like it is the real interview.
+              Practice like it is the real interview.
             </span>
           </h2>
           <p className="mt-4 max-w-md text-muted">
