@@ -6,6 +6,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { BANDS, type Band } from "@/lib/ai/interview-prompt";
+import { trackServer } from "@/lib/admin/track";
 
 const MONTHLY_LIMIT = 2; // must match start_interview() in 004_interviews.sql
 
@@ -64,6 +65,12 @@ export async function POST(request: Request) {
       `You have used your ${MONTHLY_LIMIT} mock interviews for this month. The limit resets on the 1st.`,
       429
     );
+  }
+
+  // Admin analytics: count only brand-new interviews, never resumes.
+  // trackServer never throws, so it cannot break the start. No answers or resume text here.
+  if (!resumed) {
+    await trackServer("mock_interview_started", { band });
   }
 
   // 5. Read back the interview and its rounds (row-level security lets students read their own)
