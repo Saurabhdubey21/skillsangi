@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../lib/supabase/client";
+import { track } from "../../lib/admin/track-client";
 import { getDomain } from "../../lib/roadmaps";
 import { subjects } from "../../lib/questions";
 import AppShell from "../components/AppShell";
@@ -400,6 +401,11 @@ export default function DashboardPage() {
       apply(task.done, -delta);
       setCompletion(task.done ? (completions[task.id] ?? new Date().toISOString()) : null);
       setError("Could not save that change: " + updateError.message);
+    } else if (next) {
+      // Saved and checked (not unchecked): record it for the admin numbers.
+      // Only the subject id is sent, never the task title.
+      const skill = cards.find((c) => c.id === cardId)?.skill;
+      track("task_completed", skill ? { roadmap: skill } : {});
     }
   }
 
