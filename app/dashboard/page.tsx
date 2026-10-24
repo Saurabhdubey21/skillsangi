@@ -7,6 +7,7 @@ import { createClient } from "../../lib/supabase/client";
 import { getDomain } from "../../lib/roadmaps";
 import { subjects } from "../../lib/questions";
 import AppShell from "../components/AppShell";
+import TrackDashboardView from "../components/TrackDashboardView";
 
 type Client = ReturnType<typeof createClient>;
 
@@ -465,6 +466,7 @@ export default function DashboardPage() {
 
   return (
     <AppShell userName={displayName}>
+      <TrackDashboardView />
       <h1 className="text-3xl font-semibold sm:text-4xl">
         {greeting(now)}, {firstName}
       </h1>
