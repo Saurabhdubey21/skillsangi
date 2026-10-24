@@ -59,26 +59,6 @@ const questionsButtonClass =
 // Roadmaps where the Practice pill opens the code editor (the others only get questions)
 const codeSkills = ["dsa", "c", "cpp", "java", "python"];
 
-// Which practice subjects belong to which roadmap (roadmap id -> subject ids).
-// Roadmaps that are not listed here have no question bank yet.
-const practiceSubjectsFor: Record<string, string[]> = {
-  dsa: ["dsa"],
-  oops: ["lld"],
-  sql: ["sql"],
-  dbms: ["sql"],
-  web: ["web-dev"],
-  aiml: ["ai-ml"],
-  cloud: ["cloud"],
-  systemdesign: ["hld", "lld"],
-};
-
-// Short names for the Practice card sentence
-const shortSubjectName: Record<string, string> = {
-  hld: "HLD",
-  lld: "LLD",
-  "ai-ml": "AI and ML",
-};
-
 // The current time is passed in after the page loads, never read while rendering
 function greeting(now: Date | null) {
   if (!now) return "Welcome";
@@ -436,32 +416,24 @@ export default function DashboardPage() {
   const finished = cards.filter((c) => isComplete(c));
   const totalHours = active.reduce((sum, c) => sum + c.hours_per_day, 0);
 
-  // Practice subjects that belong to the student's roadmaps in progress
-  const roadmapSubjectIds: string[] = [];
-  active.forEach((c) => {
-    (practiceSubjectsFor[c.skill] ?? []).forEach((id) => {
-      if (!roadmapSubjectIds.includes(id)) roadmapSubjectIds.push(id);
-    });
-  });
-  const roadmapStats = roadmapSubjectIds
-    .map((id) => bySubject.find((s) => s.id === id))
-    .filter((s): s is SubjectStat => s !== undefined);
-
-  const practiceCardHref =
-    roadmapStats.length > 0 ? practiceHref(roadmapStats[0].id) : "/practice";
-  let practiceCardText: string;
-  if (roadmapStats.length > 0) {
-    const shown = roadmapStats
+  // Text for the "Your roadmaps" card. It lists the student's real roadmaps in
+  // progress with their task counts. With none, it invites them to build one.
+  let roadmapsCardText: string;
+  if (active.length > 0) {
+    const shown = active
       .slice(0, 3)
-      .map((s) => `${shortSubjectName[s.id] ?? s.name} ${s.solved} of ${s.total}`)
+      .map((c) => `${getDomain(c.skill)?.name ?? "Roadmap"} ${c.done} of ${c.total} tasks`)
       .join(", ");
-    const extra = roadmapStats.length - 3;
-    practiceCardText = `Your roadmaps: ${shown}${extra > 0 ? ` and ${extra} more` : ""}. Pick up where you left off.`;
-  } else if (solved === 0) {
-    practiceCardText = "Start with the first topic and solve your first question.";
+    const extra = active.length - 3;
+    roadmapsCardText = `${shown}${extra > 0 ? ` and ${extra} more` : ""}. Pick up where you left off.`;
   } else {
-    practiceCardText = `${solved} of ${totalProblems} solved. Pick up where you left off.`;
+    roadmapsCardText = "Pick a subject, your level and your daily hours to get a day-by-day plan.";
   }
+
+  const practiceCardText =
+    solved === 0
+      ? "Start with the first topic and solve your first question."
+      : `${solved} of ${totalProblems} solved. Pick up where you left off.`;
 
   const teammateNote =
     pendingRequests > 0
@@ -706,13 +678,54 @@ export default function DashboardPage() {
       {/* Shortcuts */}
       <section className="mt-10">
         <h2 className="text-lg font-semibold">Keep going</h2>
-        <div className="mt-4 grid gap-4 sm:grid-cols-3">
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Link
-            href={practiceCardHref}
+            href="/roadmap"
+            className="rounded-panel border border-border bg-surface p-5 transition-colors hover:bg-surface-strong"
+          >
+            <h3 className="font-semibold">
+              {active.length > 0 ? "Your roadmaps" : "Build your roadmap"}
+            </h3>
+            <p className="mt-2 text-sm text-muted">{roadmapsCardText}</p>
+          </Link>
+
+          <Link
+            href="/practice"
             className="rounded-panel border border-border bg-surface p-5 transition-colors hover:bg-surface-strong"
           >
             <h3 className="font-semibold">Practice</h3>
             <p className="mt-2 text-sm text-muted">{practiceCardText}</p>
+          </Link>
+
+          {/* The code editor is desktop only, like the sidebar link */}
+          <Link
+            href="/editor"
+            className="hidden md:block rounded-panel border border-border bg-surface p-5 transition-colors hover:bg-surface-strong"
+          >
+            <h3 className="font-semibold">Code Editor</h3>
+            <p className="mt-2 text-sm text-muted">
+              Write code in C++, Java, Python or JavaScript, right in the browser.
+            </p>
+          </Link>
+
+          <Link
+            href="/interview"
+            className="rounded-panel border border-border bg-surface p-5 transition-colors hover:bg-surface-strong"
+          >
+            <h3 className="font-semibold">Interview</h3>
+            <p className="mt-2 text-sm text-muted">
+              Three timed rounds: coding, core CS and HR. You get 2 free interviews a month.
+            </p>
+          </Link>
+
+          <Link
+            href="/teacher"
+            className="rounded-panel border border-border bg-surface p-5 transition-colors hover:bg-surface-strong"
+          >
+            <h3 className="font-semibold">AI Teacher</h3>
+            <p className="mt-2 text-sm text-muted">
+              Stuck on a doubt? Ask in English or Hinglish and get hints, not just answers.
+            </p>
           </Link>
 
           <Link
@@ -728,16 +741,6 @@ export default function DashboardPage() {
               )}
             </div>
             <p className="mt-2 text-sm text-muted">{teammateNote}</p>
-          </Link>
-
-          <Link
-            href="/teacher"
-            className="rounded-panel border border-border bg-surface p-5 transition-colors hover:bg-surface-strong"
-          >
-            <h3 className="font-semibold">AI Teacher</h3>
-            <p className="mt-2 text-sm text-muted">
-              Stuck on a doubt? Ask in English or Hinglish and get hints, not just answers.
-            </p>
           </Link>
         </div>
       </section>
