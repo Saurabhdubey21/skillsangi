@@ -1,10 +1,10 @@
 import Link from "next/link";
-
-// Contact details shown at the bottom of the page.
-const CONTACT_NAME = "Saurabh Kumar Dubey";
-const CONTACT_EMAIL = "saurabhkumardubey21@gmail.com";
-const GITHUB_URL = "https://github.com/Saurabhdubey21";
-const LINKEDIN_URL = "https://www.linkedin.com/in/saurabh-kumar-dubey-sav1621";
+import {
+  OWNER_NAME as CONTACT_NAME,
+  SUPPORT_EMAIL as CONTACT_EMAIL,
+  GITHUB_URL,
+  LINKEDIN_URL,
+} from "../../lib/site";
 
 const LAST_UPDATED = "24 October 2026";
 

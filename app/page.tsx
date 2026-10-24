@@ -2,17 +2,18 @@ import Link from "next/link";
 import Logo, { LogoMark } from "./components/Logo";
 import SkillGraph from "./components/SkillGraph";
 import ThemePicker from "./components/ThemePicker";
+import {
+  OWNER_NAME as owner,
+  SUPPORT_EMAIL as email,
+  GITHUB_URL as github,
+  LINKEDIN_URL as linkedin,
+} from "../lib/site";
 
 const ring =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 
 const primaryBtn = `rounded-control bg-accent px-6 py-3 font-medium text-on-accent shadow-[0_8px_30px_-8px_var(--accent)] transition hover:bg-accent-hover ${ring}`;
 const ghostBtn = `rounded-control border border-border bg-surface px-6 py-3 font-medium text-foreground transition hover:bg-surface-strong ${ring}`;
-
-const owner = "Saurabh Kumar Dubey";
-const email = "Saurabhkumardubey21@gmail.com";
-const github = "https://github.com/Saurabhdubey21";
-const linkedin = "https://www.linkedin.com/in/saurabh-kumar-dubey-sav1621";
 
 const plan = [
   { text: "Arrays: two-pointer technique", done: true },
@@ -33,7 +34,7 @@ const tracks = [
   "DSA and problem solving",
   "Web development",
   "AI and machine learning",
-  "Embedded systems",
+  "Embedded systems (coming soon)",
   "Placement preparation",
 ];
 
@@ -69,7 +70,7 @@ const timeline = [
   { day: "Day 2", kind: "Practice", text: "3 exercises on what you learned", now: false },
   { day: "Day 3", kind: "Review", text: "Fix your mistakes", now: false },
   { day: "Day 4", kind: "Learn", text: "Hashing", now: false },
-  { day: "Day 30", kind: "Finish", text: "Your starter plan is complete", now: false },
+  { day: "Last day", kind: "Finish", text: "Your plan is complete", now: false },
 ];
 
 const steps = [
@@ -106,7 +107,7 @@ const faqs = [
   },
   {
     q: "Who is it for?",
-    a: "College students who want a clear study plan and a way to practise for placements. It is built by an engineering student, for engineering students.",
+    a: "College students who want a clear study plan and a way to practice for placements. It is built by an engineering student, for engineering students.",
   },
 ];
 
@@ -211,7 +212,7 @@ export default function Home() {
               <h1 className="mt-6 text-4xl font-semibold leading-[1.08] sm:text-5xl lg:text-6xl">
                 Study with a plan.{" "}
                 <span className="bg-linear-to-r from-accent to-glow bg-clip-text text-transparent">
-                  Practise like it is the real interview.
+                  Practice like it is the real interview.
                 </span>
               </h1>
               <p className="mt-6 max-w-lg text-lg leading-relaxed text-muted">
@@ -413,7 +414,7 @@ export default function Home() {
                 AI mock interview
               </p>
               <h2 className="mt-3 text-2xl font-semibold sm:text-3xl">
-                Practise the full interview, round by round.
+                Practice the full interview, round by round.
               </h2>
               <p className="mt-3 max-w-md text-muted">
                 Choose the package you are aiming for. Each round has a
@@ -476,10 +477,10 @@ export default function Home() {
           <div className="glass grid items-center gap-10 p-8 md:p-10 lg:grid-cols-2">
             <div>
               <h2 className="text-2xl font-semibold sm:text-3xl">
-                A 30-day starter plan, one day at a time
+                A day-by-day plan, one day at a time
               </h2>
               <p className="mt-2 max-w-md text-muted">
-                Every plan follows the same rhythm: learn it, practise it, then
+                Every plan follows the same rhythm: learn it, practice it, then
                 review your mistakes.
               </p>
 
