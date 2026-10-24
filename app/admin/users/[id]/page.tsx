@@ -34,7 +34,11 @@ export default async function AdminUserDetailPage({
   const { notice } = await searchParams;
   if (!UUID.test(id)) notFound();
 
-  const detail = await getUserDetail(admin, id);
+  // Both lookups run at the same time. id is already checked as a UUID above.
+  const [detail, targetIsAdmin] = await Promise.all([
+    getUserDetail(admin, id),
+    isAdminId(admin, id),
+  ]);
   if (!detail) notFound();
 
   const { user, state, events, audit, counts } = detail;
@@ -44,7 +48,6 @@ export default async function AdminUserDetailPage({
   const status = userStatus({ banned_until: bannedUntil, email_confirmed_at: user.email_confirmed_at });
   const plan = state?.plan ?? 'free';
   const isSelf = user.id === me.id;
-  const targetIsAdmin = await isAdminId(admin, user.id);
   const locked = isSelf || targetIsAdmin;
 
   return (

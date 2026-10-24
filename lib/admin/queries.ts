@@ -71,7 +71,8 @@ export async function listUsers(
 }
 
 export async function getUserDetail(admin: AdminClient, id: string) {
-  const [authRes, stateRes, eventsRes, auditRes] = await Promise.all([
+  // Everything runs in one parallel batch (one round trip of waiting, not two).
+  const [authRes, stateRes, eventsRes, auditRes, counts] = await Promise.all([
     admin.auth.admin.getUserById(id),
     admin.from('user_admin_state').select('*').eq('user_id', id).maybeSingle(),
     // Event type and time only. Metadata is deliberately not shown (privacy).
@@ -87,19 +88,18 @@ export async function getUserDetail(admin: AdminClient, id: string) {
       .eq('target_user_id', id)
       .order('created_at', { ascending: false })
       .limit(20),
+    Promise.all(
+      PRODUCT_COUNTS.map(async (c) => {
+        const { count, error } = await admin
+          .from(c.table)
+          .select('*', { count: 'exact', head: true })
+          .eq(c.userColumn, id);
+        return { label: c.label, value: error ? null : (count ?? 0) };
+      }),
+    ),
   ]);
 
   if (authRes.error || !authRes.data.user) return null;
-
-  const counts = await Promise.all(
-    PRODUCT_COUNTS.map(async (c) => {
-      const { count, error } = await admin
-        .from(c.table)
-        .select('*', { count: 'exact', head: true })
-        .eq(c.userColumn, id);
-      return { label: c.label, value: error ? null : (count ?? 0) };
-    }),
-  );
 
   return {
     user: authRes.data.user,
