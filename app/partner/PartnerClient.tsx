@@ -664,7 +664,7 @@ function ConnectionItem({
           <h4 className="text-sm font-semibold">Contact shared by {name}</h4>
           {theirShare ? (
             <ul className="mt-2 space-y-1 text-sm">
-              {theirShare.linkedin && (
+              {theirShare.linkedin && isValidLinkedin(theirShare.linkedin) && (
                 <li>
                   <a
                     href={theirShare.linkedin}
@@ -723,7 +723,7 @@ function ConnectionItem({
             </div>
             <div>
               <label htmlFor={`wa-${card.user_id}`} className="mb-1 block text-sm text-muted">
-                WhatsApp number
+                WhatsApp number (optional)
               </label>
               <input
                 id={`wa-${card.user_id}`}
@@ -765,7 +765,8 @@ function ConnectionItem({
           {confirmRemove ? (
             <div className="flex flex-wrap items-center gap-3 text-sm">
               <span>
-                Remove {name}? Anything either of you shared with the other will be deleted.
+                Remove {name}? Anything either of you shared with the other, and
+                your chat messages with each other, will be deleted.
               </span>
               <button
                 type="button"
@@ -966,14 +967,23 @@ export default function PartnerClient() {
     setBusy(false);
   }
 
-  async function removeRequest(id: string) {
+  async function removeRequest(id: string, doneMessage: string) {
     setBusy(true);
     setError("");
     setNotice("");
     const supabase = createClient();
-    const { error: e } = await supabase.from("partner_requests").delete().eq("id", id);
+    const { data, error: e } = await supabase
+      .from("partner_requests")
+      .delete()
+      .eq("id", id)
+      .select("id");
     if (e) setError("Could not remove that: " + e.message);
-    else await loadAll();
+    else if (!data || data.length === 0)
+      setError("Nothing was removed. It may already be gone. Please refresh the page.");
+    else {
+      setNotice(doneMessage);
+      await loadAll();
+    }
     setBusy(false);
   }
 
@@ -1333,7 +1343,7 @@ export default function PartnerClient() {
                         busy={busy}
                         onShare={(l, w) => saveShare(otherId, l, w)}
                         onStopSharing={() => stopSharing(otherId)}
-                        onRemove={() => removeRequest(r.id)}
+                        onRemove={() => removeRequest(r.id, "Connection removed.")}
                       />
                     );
                   })}
@@ -1354,7 +1364,7 @@ export default function PartnerClient() {
                         <button
                           type="button"
                           disabled={busy}
-                          onClick={() => removeRequest(r.id)}
+                          onClick={() => removeRequest(r.id, "Request withdrawn.")}
                           className={ghostBtn}
                         >
                           Withdraw
