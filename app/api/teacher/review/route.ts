@@ -73,15 +73,15 @@ export async function POST(request: Request) {
     return fail("Please get a hint review first. Then you can ask for the full fix.", 400);
   }
 
-  // 4. Daily limit (shared with the chat)
-  const limit = Number(process.env.AI_DAILY_LIMIT) || 30;
-  const { data: used, error: usageError } = await supabase.rpc("bump_ai_usage", {
-    p_limit: limit,
-  });
+  // 4. Daily limit (shared with the chat). The limit lives INSIDE the database
+  // function, so the browser cannot choose it. We only read it to show it.
+  const { data: used, error: usageError } = await supabase.rpc("bump_ai_usage");
   if (usageError) {
     console.error("[review] usage error:", usageError.message);
     return fail("Something went wrong. Please try again.", 500);
   }
+  const { data: limitData } = await supabase.rpc("ai_daily_limit");
+  const limit = typeof limitData === "number" ? limitData : 30;
   if (used === -1) {
     return fail(`Daily limit of ${limit} messages reached. Please come back tomorrow.`, 429);
   }
