@@ -11,7 +11,8 @@ export default function AdminError({
     <div className="max-w-lg rounded-2xl border border-white/10 bg-[#0f1528] p-6">
       <h2 className="text-lg font-semibold text-white">Something went wrong</h2>
       <p className="mt-2 text-sm text-slate-400">
-        The admin page could not load. Check that you ran supabase/admin_setup.sql and that
+        The admin page could not load. Check that the admin migrations
+        (supabase/migrations/007 and 008) were applied and that
         SUPABASE_SERVICE_ROLE_KEY is set.
       </p>
       {error.digest ? <p className="mt-2 text-xs text-slate-500">Reference: {error.digest}</p> : null}
