@@ -6,7 +6,7 @@ import {
   LINKEDIN_URL,
 } from "../../lib/site";
 
-const LAST_UPDATED = "24 October 2026";
+const LAST_UPDATED = "25 October 2026";
 
 export const metadata = {
   title: "Privacy | SkillSangi",
@@ -142,6 +142,10 @@ export default function PrivacyPage() {
             <li>How many AI messages you sent each day, which we use for the daily limit.</li>
             <li>Your reply language, saved on your profile.</li>
             <li>
+              The optional details you choose to save on your profile: your mobile number,
+              your LinkedIn link and your coding links.
+            </li>
+            <li>
               The code attempts you save in the editor, with the language, the time and the
               practice question if there was one, and the AI review of an attempt if you asked
               for one.
@@ -155,6 +159,11 @@ export default function PrivacyPage() {
           <p className="mt-3 text-muted">
             You can only see your own chats, attempts and interviews. Other students cannot
             see them.
+          </p>
+          <p className="mt-3 text-muted">
+            The mobile number, LinkedIn link and coding links saved on your profile are not
+            shown to other students. The coding usernames you add to your Teammates card are
+            separate, and are described in the next section.
           </p>
         </section>
 
