@@ -1,3 +1,5 @@
+import "server-only";
+
 // Server-only. A Supabase client that uses the SERVICE-ROLE key.
 // It skips row-level security, so use it ONLY inside API routes, and ONLY after you have
 // checked the student is logged in (supabase.auth.getUser()) and passed their user id yourself.
