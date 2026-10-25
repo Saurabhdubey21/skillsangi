@@ -7,6 +7,7 @@ import { createClient } from "../../lib/supabase/client";
 import { track } from "../../lib/admin/track-client";
 import { getDomain } from "../../lib/roadmaps";
 import { subjects } from "../../lib/questions";
+import { SUPPORT_EMAIL } from "../../lib/site";
 import AppShell from "../components/AppShell";
 import TrackDashboardView from "../components/TrackDashboardView";
 
@@ -49,12 +50,16 @@ type SubjectStat = {
 
 const TASK_COLUMNS = "id, day_number, position, title, kind, done, module, link";
 const WARN_HOURS = 6;
+const SUBJECTS_SHOWN = 4;
 
 // The Learn / Practice / Review pill and the "Open questions" button share one size
 const pillClass =
   "shrink-0 self-center rounded-control border px-3 py-1.5 text-center text-xs font-medium capitalize sm:w-32";
 const questionsButtonClass =
   "shrink-0 rounded-control border border-border bg-surface px-3 py-1.5 text-center text-xs font-medium text-accent transition-colors hover:bg-surface-strong sm:w-32";
+
+const ring =
+  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 
 // Roadmaps where the Practice pill opens the code editor (the others only get questions)
 const codeSkills = ["dsa", "c", "cpp", "java", "python"];
@@ -155,20 +160,140 @@ async function loadCard(supabase: Client, r: RoadmapRow) {
   return { card, error: firstError };
 }
 
+/* ---------- small icons (decorative) ---------- */
+
+function Icon({ children }: { children: React.ReactNode }) {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
+
+const icons = {
+  flame: (
+    <Icon>
+      <path d="M12 3c1 3 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 1-9z" />
+    </Icon>
+  ),
+  map: (
+    <Icon>
+      <path d="M4 6h16M4 12h10M4 18h16" />
+    </Icon>
+  ),
+  code: (
+    <Icon>
+      <path d="M8 8l-4 4 4 4M16 8l4 4-4 4M14 5l-4 14" />
+    </Icon>
+  ),
+  terminal: (
+    <Icon>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M7 9l3 3-3 3M13 15h4" />
+    </Icon>
+  ),
+  mic: (
+    <Icon>
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+    </Icon>
+  ),
+  chat: (
+    <Icon>
+      <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
+    </Icon>
+  ),
+  users: (
+    <Icon>
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M2.5 20c0-3.6 3-5.5 6.5-5.5s6.5 1.9 6.5 5.5" />
+      <path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.8c2.2.7 3.5 2.3 3.5 5.2" />
+    </Icon>
+  ),
+  mail: (
+    <Icon>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3 7l9 6 9-6" />
+    </Icon>
+  ),
+  shield: (
+    <Icon>
+      <path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z" />
+    </Icon>
+  ),
+  flag: (
+    <Icon>
+      <path d="M5 21V4M5 4h11l-2 4 2 4H5" />
+    </Icon>
+  ),
+};
+
+/* ---------- reusable pieces ---------- */
+
+function ProgressRing({ percent, label }: { percent: number; label: string }) {
+  const r = 18;
+  const c = 2 * Math.PI * r;
+  const clamped = Math.max(0, Math.min(100, percent));
+  return (
+    <svg
+      width="48"
+      height="48"
+      viewBox="0 0 48 48"
+      role="img"
+      aria-label={label}
+      className="shrink-0"
+    >
+      <circle cx="24" cy="24" r={r} fill="none" strokeWidth="5" className="stroke-surface-strong" />
+      <circle
+        cx="24"
+        cy="24"
+        r={r}
+        fill="none"
+        strokeWidth="5"
+        strokeLinecap="round"
+        strokeDasharray={c}
+        strokeDashoffset={c - (c * clamped) / 100}
+        transform="rotate(-90 24 24)"
+        className="stroke-accent transition-[stroke-dashoffset] duration-500"
+      />
+    </svg>
+  );
+}
+
 function Stat({
   label,
   value,
   hint,
+  icon,
+  percent,
 }: {
   label: string;
   value: string;
   hint?: string;
+  icon: React.ReactNode;
+  percent?: number;
 }) {
   return (
-    <div className="glass px-4 py-3">
-      <dt className="text-sm text-muted">{label}</dt>
-      <dd className="mt-1 font-display text-xl font-semibold">{value}</dd>
-      {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
+    <div className="glass flex items-center justify-between gap-3 px-5 py-4">
+      <div className="min-w-0">
+        <dt className="flex items-center gap-2 text-sm text-muted">
+          <span className="text-glow">{icon}</span>
+          {label}
+        </dt>
+        <dd className="mt-1.5 font-display text-2xl font-semibold">{value}</dd>
+        {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
+      </div>
+      {percent !== undefined && <ProgressRing percent={percent} label={`${label} ${percent}%`} />}
     </div>
   );
 }
@@ -196,6 +321,42 @@ function CheckBox({ done }: { done: boolean }) {
   );
 }
 
+function ActionCard({
+  href,
+  icon,
+  title,
+  text,
+  badge,
+  className = "",
+}: {
+  href: string;
+  icon: React.ReactNode;
+  title: string;
+  text: string;
+  badge?: number;
+  className?: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`group flex flex-col rounded-panel border border-border bg-surface p-5 transition-colors hover:bg-surface-strong ${ring} ${className}`}
+    >
+      <div className="flex items-center justify-between">
+        <span className="flex h-10 w-10 items-center justify-center rounded-control bg-accent/15 text-glow">
+          {icon}
+        </span>
+        {badge !== undefined && badge > 0 && (
+          <span className="rounded-full bg-streak px-2 py-0.5 text-xs font-semibold text-background">
+            {badge}
+          </span>
+        )}
+      </div>
+      <h3 className="mt-4 font-semibold">{title}</h3>
+      <p className="mt-1.5 text-sm text-muted">{text}</p>
+    </Link>
+  );
+}
+
 const primaryLink =
   "inline-block shrink-0 rounded-control bg-accent px-6 py-3 font-medium text-on-accent shadow-[0_8px_30px_-8px_var(--accent)] transition hover:bg-accent-hover";
 
@@ -210,8 +371,10 @@ export default function DashboardPage() {
   const [solved, setSolved] = useState(0); // solved questions, all subjects
   const [totalProblems, setTotalProblems] = useState(0); // all questions, all subjects
   const [bySubject, setBySubject] = useState<SubjectStat[]>([]);
+  const [showAllSubjects, setShowAllSubjects] = useState(false);
   const [pendingRequests, setPendingRequests] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const [interviewsStarted, setInterviewsStarted] = useState(0);
   const [error, setError] = useState("");
   const [now, setNow] = useState<Date | null>(null);
 
@@ -236,40 +399,53 @@ export default function DashboardPage() {
       }
       setEmail(user.email ?? "");
 
-      const [profileRes, roadmapRes, progressRes, topicsRes, requestRes, messageRes, doneRes] =
-        await Promise.all([
-          supabase
-            .from("profiles")
-            .select("full_name, college")
-            .eq("id", user.id)
-            .maybeSingle(),
-          supabase
-            .from("roadmaps")
-            .select("id, skill, level, hours_per_day")
-            .eq("user_id", user.id),
-          // Solved questions per topic, for every subject (the view is per student)
-          supabase.from("question_topic_progress").select("subject, solved"),
-          // Total questions per topic, for every subject
-          supabase.from("question_topics").select("subject, total"),
-          supabase
-            .from("partner_requests")
-            .select("id", { count: "exact", head: true })
-            .eq("to_user", user.id)
-            .eq("status", "pending"),
-          supabase
-            .from("partner_messages")
-            .select("id", { count: "exact", head: true })
-            .eq("to_user", user.id)
-            .is("read_at", null),
-          supabase
-            .from("roadmap_tasks")
-            .select("id, completed_at")
-            .eq("user_id", user.id)
-            .eq("done", true)
-            .not("completed_at", "is", null)
-            .order("completed_at", { ascending: false })
-            .limit(1000),
-        ]);
+      const [
+        profileRes,
+        roadmapRes,
+        progressRes,
+        topicsRes,
+        requestRes,
+        messageRes,
+        doneRes,
+        interviewRes,
+      ] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("full_name, college")
+          .eq("id", user.id)
+          .maybeSingle(),
+        supabase
+          .from("roadmaps")
+          .select("id, skill, level, hours_per_day")
+          .eq("user_id", user.id),
+        // Solved questions per topic, for every subject (the view is per student)
+        supabase.from("question_topic_progress").select("subject, solved"),
+        // Total questions per topic, for every subject
+        supabase.from("question_topics").select("subject, total"),
+        supabase
+          .from("partner_requests")
+          .select("id", { count: "exact", head: true })
+          .eq("to_user", user.id)
+          .eq("status", "pending"),
+        supabase
+          .from("partner_messages")
+          .select("id", { count: "exact", head: true })
+          .eq("to_user", user.id)
+          .is("read_at", null),
+        supabase
+          .from("roadmap_tasks")
+          .select("id, completed_at")
+          .eq("user_id", user.id)
+          .eq("done", true)
+          .not("completed_at", "is", null)
+          .order("completed_at", { ascending: false })
+          .limit(1000),
+        // Only used for the "Get started" checklist. Students can read their own rows.
+        supabase
+          .from("interviews")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id),
+      ]);
 
       if (!active) return;
 
@@ -299,6 +475,7 @@ export default function DashboardPage() {
 
       setPendingRequests(requestRes.count ?? 0);
       setUnreadMessages(messageRes.count ?? 0);
+      setInterviewsStarted(interviewRes.count ?? 0);
 
       const map: Record<string, string> = {};
       (doneRes.data ?? []).forEach((t) => {
@@ -442,17 +619,75 @@ export default function DashboardPage() {
         ? `${unreadMessages} unread message${unreadMessages > 1 ? "s" : ""}`
         : "Find a study partner or a project teammate.";
 
+  const practicePercent = totalProblems ? Math.round((solved / totalProblems) * 100) : 0;
+
+  // "Get started" checklist, built from real data
+  const checklist = [
+    {
+      done: Boolean(college),
+      title: "Add your college",
+      text: "It helps us match you with classmates.",
+      href: "/profile",
+      cta: "Update profile",
+    },
+    {
+      done: cards.length > 0,
+      title: "Build your first roadmap",
+      text: "Pick a subject, level and daily hours.",
+      href: "/roadmap",
+      cta: "Build roadmap",
+    },
+    {
+      done: solved > 0,
+      title: "Solve your first question",
+      text: "Open a topic and try one question.",
+      href: "/practice",
+      cta: "Open practice",
+    },
+    {
+      done: interviewsStarted > 0,
+      title: "Try a mock interview",
+      text: "Three timed rounds. 2 free interviews a month.",
+      href: "/interview",
+      cta: "Start interview",
+    },
+  ];
+  const checklistDone = checklist.filter((c) => c.done).length;
+  const showChecklist = checklistDone < checklist.length;
+
+  // Subjects with progress first, then the rest in their usual order
+  const sortedSubjects = [...bySubject].sort((a, b) => b.solved - a.solved);
+  const visibleSubjects = showAllSubjects ? sortedSubjects : sortedSubjects.slice(0, SUBJECTS_SHOWN);
+
+  const reportHref = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("SkillSangi: problem report")}`;
+  const feedbackHref = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("SkillSangi: feedback")}`;
+
   return (
     <AppShell userName={displayName}>
       <TrackDashboardView />
-      <h1 className="text-3xl font-semibold sm:text-4xl">
-        {greeting(now)}, {firstName}
-      </h1>
-      <p className="mt-2 text-muted">
-        {active.length > 0
-          ? `Here is what is on your plate today across ${active.length} roadmap${active.length > 1 ? "s" : ""}.`
-          : "Set up a study plan in about a minute."}
-      </p>
+
+      {/* Header */}
+      <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+        <div>
+          <h1 className="text-3xl font-semibold sm:text-4xl">
+            {greeting(now)}, {firstName}
+          </h1>
+          <p className="mt-2 text-muted">
+            {active.length > 0
+              ? `Here is what is on your plate today across ${active.length} roadmap${active.length > 1 ? "s" : ""}.`
+              : "Set up a study plan in about a minute."}
+          </p>
+        </div>
+        {active.length > 0 ? (
+          <a href="#todays-plan" className={`${primaryLink} ${ring}`}>
+            Continue today&apos;s plan
+          </a>
+        ) : (
+          <Link href="/roadmap" className={`${primaryLink} ${ring}`}>
+            Build my roadmap
+          </Link>
+        )}
+      </div>
 
       {error && (
         <p
@@ -464,24 +699,101 @@ export default function DashboardPage() {
       )}
 
       {/* Quick numbers */}
-      <dl className="mt-8 grid grid-cols-3 gap-3">
+      <dl className="mt-8 grid gap-3 sm:grid-cols-3">
         <Stat
+          icon={icons.flame}
           label="Streak"
           value={`${stats.streak} day${stats.streak === 1 ? "" : "s"}`}
           hint={stats.streak === 0 ? "Finish a task to start one" : "Keep it going"}
         />
         <Stat
+          icon={icons.map}
           label="Roadmaps"
           value={cards.length ? `${stats.percent}%` : "Not started"}
           hint={cards.length ? `${active.length} in progress` : undefined}
+          percent={cards.length ? stats.percent : undefined}
         />
-        <Stat label="Practice" value={`${solved} of ${totalProblems}`} hint="questions solved" />
+        <Stat
+          icon={icons.code}
+          label="Practice"
+          value={`${solved} of ${totalProblems}`}
+          hint="questions solved"
+          percent={practicePercent}
+        />
       </dl>
 
       {totalHours > WARN_HOURS && (
         <p className="mt-4 rounded-control border border-border bg-surface px-4 py-3 text-sm text-muted">
           You are planning {totalHours} hours of study a day. Remember to take breaks.
         </p>
+      )}
+
+      {/* Get started checklist (only until everything is done) */}
+      {showChecklist && (
+        <section aria-label="Get started" className="glass mt-6 p-6">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-lg font-semibold">Get started</h2>
+            <span className="text-sm text-muted">
+              {checklistDone} of {checklist.length} done
+            </span>
+          </div>
+          <div
+            role="progressbar"
+            aria-label="Get started progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round((checklistDone / checklist.length) * 100)}
+            className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-strong"
+          >
+            <div
+              className="h-full rounded-full bg-linear-to-r from-accent to-glow transition-[width] duration-500"
+              style={{ width: `${(checklistDone / checklist.length) * 100}%` }}
+            />
+          </div>
+          <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+            {checklist.map((item) => (
+              <li
+                key={item.title}
+                className="flex items-start justify-between gap-3 rounded-control border border-border bg-surface p-4"
+              >
+                <div className="flex items-start gap-3">
+                  <span
+                    aria-hidden="true"
+                    className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
+                      item.done ? "bg-accent text-on-accent" : "border-2 border-border"
+                    }`}
+                  >
+                    {item.done && (
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path
+                          d="M2.5 6.5l2.2 2.2L9.5 3.8"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    )}
+                  </span>
+                  <div>
+                    <p className={`font-medium ${item.done ? "text-muted line-through" : ""}`}>
+                      {item.title}
+                    </p>
+                    <p className="mt-0.5 text-sm text-muted">{item.text}</p>
+                  </div>
+                </div>
+                {!item.done && (
+                  <Link
+                    href={item.href}
+                    className={`shrink-0 rounded-control text-sm font-medium text-accent hover:underline ${ring}`}
+                  >
+                    {item.cta}
+                  </Link>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {/* Today's plan, one card for each roadmap in progress */}
@@ -514,7 +826,7 @@ export default function DashboardPage() {
         </section>
       )}
 
-      {active.map((card) => {
+      {active.map((card, index) => {
         const name = getDomain(card.skill)?.name ?? "Your roadmap";
         const pct = card.total ? Math.round((card.done / card.total) * 100) : 0;
         const dayComplete = card.tasks.length > 0 && card.tasks.every((t) => t.done);
@@ -522,8 +834,9 @@ export default function DashboardPage() {
         return (
           <section
             key={card.id}
+            id={index === 0 ? "todays-plan" : undefined}
             aria-label={`Today's plan: ${name}`}
-            className="glass mt-6 p-6 sm:p-8"
+            className="glass mt-6 scroll-mt-6 p-6 sm:p-8"
           >
             <div className="flex flex-wrap items-baseline justify-between gap-3">
               <div>
@@ -618,55 +931,94 @@ export default function DashboardPage() {
         </p>
       )}
 
-      {!college && (
-        <section className="mt-4 flex flex-col items-start justify-between gap-3 rounded-panel border border-border bg-surface p-5 sm:flex-row sm:items-center">
-          <p className="text-sm">
-            <span className="font-medium">Add your college.</span>{" "}
-            <span className="text-muted">
-              It helps us match you with classmates on the Teammates page.
-            </span>
-          </p>
-          <Link
-            href="/profile"
-            className="shrink-0 text-sm font-medium text-accent hover:underline"
-          >
-            Update profile
-          </Link>
-        </section>
-      )}
+      {/* Quick actions */}
+      <section aria-label="Quick actions" className="mt-10">
+        <h2 className="text-lg font-semibold">Jump back in</h2>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ActionCard
+            href="/roadmap"
+            icon={icons.map}
+            title={active.length > 0 ? "Your roadmaps" : "Build your roadmap"}
+            text={roadmapsCardText}
+          />
+          <ActionCard
+            href="/practice"
+            icon={icons.code}
+            title="Practice"
+            text={practiceCardText}
+          />
+          {/* The code editor is desktop only, like the sidebar link */}
+          <ActionCard
+            href="/editor"
+            icon={icons.terminal}
+            title="Code Editor"
+            text="Write code in C++, Java, Python or JavaScript, right in the browser."
+            className="hidden md:flex"
+          />
+          <ActionCard
+            href="/interview"
+            icon={icons.mic}
+            title="Interview"
+            text="Three timed rounds: coding, core CS and HR. You get 2 free interviews a month."
+          />
+          <ActionCard
+            href="/teacher"
+            icon={icons.chat}
+            title="AI Teacher"
+            text="Stuck on a doubt? Ask in English or Hinglish and get hints, not just answers."
+          />
+          <ActionCard
+            href="/partner"
+            icon={icons.users}
+            title="Teammates"
+            text={teammateNote}
+            badge={pendingRequests + unreadMessages}
+          />
+        </div>
+      </section>
 
       {/* Practice progress for each subject */}
       {bySubject.length > 0 && (
         <section aria-label="Practice by subject" className="mt-10">
-          <h2 className="text-lg font-semibold">Practice by subject</h2>
-          <ul className="mt-4 grid gap-3 sm:grid-cols-2">
-            {bySubject.map((s) => {
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="text-lg font-semibold">Practice by subject</h2>
+            {bySubject.length > SUBJECTS_SHOWN && (
+              <button
+                type="button"
+                onClick={() => setShowAllSubjects((v) => !v)}
+                aria-expanded={showAllSubjects}
+                className={`rounded-control text-sm font-medium text-accent hover:underline ${ring}`}
+              >
+                {showAllSubjects ? "Show fewer" : `Show all ${bySubject.length}`}
+              </button>
+            )}
+          </div>
+          <ul className="mt-4 divide-y divide-border overflow-hidden rounded-panel border border-border bg-surface">
+            {visibleSubjects.map((s) => {
               const pct = s.total ? Math.round((s.solved / s.total) * 100) : 0;
               return (
                 <li key={s.id}>
                   <Link
                     href={practiceHref(s.id)}
-                    className="block h-full rounded-panel border border-border bg-surface p-4 transition-colors hover:bg-surface-strong"
+                    className={`flex items-center gap-4 px-4 py-3 transition-colors hover:bg-surface-strong ${ring}`}
                   >
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span className="font-medium">{s.name}</span>
-                      <span className="shrink-0 whitespace-nowrap text-sm text-muted">
-                        {s.solved} of {s.total}
-                      </span>
-                    </div>
+                    <span className="min-w-0 flex-1 truncate font-medium">{s.name}</span>
                     <div
                       role="progressbar"
                       aria-label={`${s.name} progress`}
                       aria-valuemin={0}
                       aria-valuemax={100}
                       aria-valuenow={pct}
-                      className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-strong"
+                      className="hidden h-1.5 w-32 overflow-hidden rounded-full bg-surface-strong sm:block"
                     >
                       <div
                         className="h-full rounded-full bg-linear-to-r from-accent to-glow"
                         style={{ width: `${pct}%` }}
                       />
                     </div>
+                    <span className="w-24 shrink-0 text-right text-sm text-muted">
+                      {s.solved} of {s.total}
+                    </span>
                   </Link>
                 </li>
               );
@@ -675,72 +1027,43 @@ export default function DashboardPage() {
         </section>
       )}
 
-      {/* Shortcuts */}
-      <section className="mt-10">
-        <h2 className="text-lg font-semibold">Keep going</h2>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Link
-            href="/roadmap"
-            className="rounded-panel border border-border bg-surface p-5 transition-colors hover:bg-surface-strong"
+      {/* Help and feedback */}
+      <section aria-label="Help and feedback" className="glass mt-10 p-6 sm:p-8">
+        <h2 className="text-lg font-semibold">Help and feedback</h2>
+        <p className="mt-1.5 max-w-xl text-sm text-muted">
+          Found a bug or have an idea? Write to us. SkillSangi is built by one student, and every
+          message is read.
+        </p>
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <a
+            href={reportHref}
+            className={`flex items-center gap-3 rounded-control border border-border bg-surface p-4 transition-colors hover:bg-surface-strong ${ring}`}
           >
-            <h3 className="font-semibold">
-              {active.length > 0 ? "Your roadmaps" : "Build your roadmap"}
-            </h3>
-            <p className="mt-2 text-sm text-muted">{roadmapsCardText}</p>
-          </Link>
-
-          <Link
-            href="/practice"
-            className="rounded-panel border border-border bg-surface p-5 transition-colors hover:bg-surface-strong"
+            <span className="text-glow">{icons.flag}</span>
+            <span>
+              <span className="block font-medium">Report a problem</span>
+              <span className="block text-xs text-muted">Opens your email app</span>
+            </span>
+          </a>
+          <a
+            href={feedbackHref}
+            className={`flex items-center gap-3 rounded-control border border-border bg-surface p-4 transition-colors hover:bg-surface-strong ${ring}`}
           >
-            <h3 className="font-semibold">Practice</h3>
-            <p className="mt-2 text-sm text-muted">{practiceCardText}</p>
-          </Link>
-
-          {/* The code editor is desktop only, like the sidebar link */}
+            <span className="text-glow">{icons.mail}</span>
+            <span className="min-w-0">
+              <span className="block font-medium">Contact us</span>
+              <span className="block break-all text-xs text-muted">{SUPPORT_EMAIL}</span>
+            </span>
+          </a>
           <Link
-            href="/editor"
-            className="hidden md:block rounded-panel border border-border bg-surface p-5 transition-colors hover:bg-surface-strong"
+            href="/privacy"
+            className={`flex items-center gap-3 rounded-control border border-border bg-surface p-4 transition-colors hover:bg-surface-strong ${ring}`}
           >
-            <h3 className="font-semibold">Code Editor</h3>
-            <p className="mt-2 text-sm text-muted">
-              Write code in C++, Java, Python or JavaScript, right in the browser.
-            </p>
-          </Link>
-
-          <Link
-            href="/interview"
-            className="rounded-panel border border-border bg-surface p-5 transition-colors hover:bg-surface-strong"
-          >
-            <h3 className="font-semibold">Interview</h3>
-            <p className="mt-2 text-sm text-muted">
-              Three timed rounds: coding, core CS and HR. You get 2 free interviews a month.
-            </p>
-          </Link>
-
-          <Link
-            href="/teacher"
-            className="rounded-panel border border-border bg-surface p-5 transition-colors hover:bg-surface-strong"
-          >
-            <h3 className="font-semibold">AI Teacher</h3>
-            <p className="mt-2 text-sm text-muted">
-              Stuck on a doubt? Ask in English or Hinglish and get hints, not just answers.
-            </p>
-          </Link>
-
-          <Link
-            href="/partner"
-            className="rounded-panel border border-border bg-surface p-5 transition-colors hover:bg-surface-strong"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="font-semibold">Teammates</h3>
-              {pendingRequests + unreadMessages > 0 && (
-                <span className="rounded-full bg-streak px-2 py-0.5 text-xs font-semibold text-background">
-                  {pendingRequests + unreadMessages}
-                </span>
-              )}
-            </div>
-            <p className="mt-2 text-sm text-muted">{teammateNote}</p>
+            <span className="text-glow">{icons.shield}</span>
+            <span>
+              <span className="block font-medium">Privacy</span>
+              <span className="block text-xs text-muted">How your data is used</span>
+            </span>
           </Link>
         </div>
       </section>
